@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "neurotrace": {
+      "command": "C:\\Users\\kabideba\\AppData\\Local\\Programs\\NeuroTrace\\neurotrace.exe",
+      "args": [
+        "--mcp",
+        "--workspace",
+        "c:\\Users\\kabideba\\Desktop\\Kiro OOJ Automation"
+      ]
+    }
+  }
+}

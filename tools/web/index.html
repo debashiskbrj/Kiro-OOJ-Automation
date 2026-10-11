@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OOJ Process Runner — by kabideba</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-logo">OOJ</div>
+      <div class="brand-text">
+        <h1>OOJ Process Automation</h1>
+        <p class="sub">SWA India · Out-of-Jurisdiction pipeline &nbsp;|&nbsp; Local · Free · No&nbsp;AI</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="server-control">
+        <button id="restart-btn" type="button" class="ghost" title="Force-restart the local server">Restart server</button>
+        <span id="restart-state" class="server-state"></span>
+      </div>
+      <div class="credit">
+        <span class="credit-label">Designed &amp; built by</span>
+        <span class="credit-name">KABIDEBA</span>
+        <span class="credit-tag">SWA India · Automation</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Step 1: Midway access (granted once per run) -->
+    <section class="card" id="midway-card">
+      <h2>1. Midway access</h2>
+      <p id="midway-state" class="state">Checking&hellip;</p>
+      <p class="hint">Click the button once. A terminal window opens asking for your PIN. Approve it, then this page unlocks Start.</p>
+      <button id="midway-btn">Grant Midway access</button>
+    </section>
+
+    <!-- Step 2: Start the run -->
+    <section class="card" id="start-card">
+      <h2>2. Start today's run</h2>
+      <label class="checkbox">
+        <input type="checkbox" id="ads-approve" />
+        Approve ADS upload for this run (required for a complete, downloadable workbook).
+      </label>
+      <p class="hint">ADS uploads tracking IDs and addresses over a plaintext endpoint. Leave unticked for a partial run (no download).</p>
+      <label class="checkbox">
+        <input type="checkbox" id="allow-source-failures" />
+        Allow partial download if a source fails (leaves that tool's sheet blank).
+      </label>
+      <p class="hint">Off by default. When on, a source that can't fetch is left blank and the workbook still downloads, labelled PARTIAL.</p>
+      <div class="btn-row">
+        <button id="start-btn" disabled>Start run</button>
+        <button id="stop-btn" class="danger" disabled>Stop run</button>
+      </div>
+      <p id="start-state" class="state"></p>
+    </section>
+
+    <!-- Step 3: Live progress -->
+    <section class="card" id="progress-card">
+      <h2>3. Progress</h2>
+      <div id="sources" class="sources"></div>
+      <details id="log-details" open>
+        <summary>Live log <button id="copy-log-btn" type="button" class="copy-btn">Copy log</button></summary>
+        <pre id="log"></pre>
+      </details>
+    </section>
+
+    <!-- Step 4: Verification + download -->
+    <section class="card" id="finish-card">
+      <h2>4. Result</h2>
+      <div id="verify-banner" class="banner pending">Waiting for the run to finish&hellip;</div>
+      <button id="download-btn" disabled>Download filled workbook</button>
+      <p id="desktop-note" class="state"></p>
+    </section>
+
+    <!-- Step 5: Post comments (optional, high-risk write) -->
+    <section class="card" id="post-comments-card">
+      <h2>5. Post comments (optional)</h2>
+      <p class="hint">Upload an .xlsx with <strong>url</strong>, <strong>tid</strong> and <strong>remark</strong> columns. A dry-run preview parses the file first; nothing is posted until you review it and confirm.</p>
+      <div class="btn-row">
+        <input type="file" id="pc-file-input" accept=".xlsx" />
+        <button id="pc-upload-btn" type="button">Upload &amp; Preview</button>
+      </div>
+      <p id="pc-upload-state" class="state"></p>
+
+      <div id="pc-preview" class="pc-preview"></div>
+
+      <div class="pc-danger-zone">
+        <p class="hint pc-warn">This POSTS LIVE, IRREVERSIBLE comments to real SIM tickets. Each listed ticket receives its grouped comment. There is no undo. Review the preview above before continuing.</p>
+        <label class="checkbox">
+          <input type="checkbox" id="pc-confirm-check" />
+          I have reviewed the preview and want to post these comments.
+        </label>
+        <div class="btn-row">
+          <button id="pc-post-btn" class="danger" disabled>Post comments to tickets</button>
+          <button id="pc-stop-btn" class="danger" disabled>Stop posting</button>
+          <button id="pc-retry-btn" type="button" class="ghost" disabled>Retry failed</button>
+        </div>
+        <p id="pc-post-state" class="state"></p>
+      </div>
+
+      <div id="pc-progress" class="pc-progress"></div>
+      <details id="pc-log-details">
+        <summary>Posting log</summary>
+        <pre id="pc-log"></pre>
+      </details>
+      <button id="pc-report-download-btn" type="button" class="ghost" disabled>Download report</button>
+    </section>
+
+    <!-- Full enriched table -->
+    <section class="card" id="table-card">
+      <h2>Enriched data <span id="row-count" class="pill"></span></h2>
+      <div class="table-scroll"><table id="data-table"><thead></thead><tbody></tbody></table></div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <span>OOJ Process Automation</span>
+    <span class="dot">&bull;</span>
+    <span>Conceived, designed &amp; developed by <strong>Kabideba</strong></span>
+    <span class="dot">&bull;</span>
+    <span>Runs locally · read-only · no data leaves this machine</span>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>

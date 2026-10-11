@@ -1,0 +1,6 @@
+[mcp_servers.neurotrace]
+command = "python3"
+args = ["/mnt/c/Users/kabideba/.kiro/extensions/blackirontechnologies.neurotrace-1.2.7-universal/bin/neurotrace.py", "--mcp", "--workspace", "/mnt/c/Users/kabideba/Desktop/Kiro OOJ Automation"]
+startup_timeout_sec = 45
+tool_timeout_sec = 120
+enabled = true
