@@ -205,6 +205,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"restarting": True, "port": ACTIVE_PORT})
             _relaunch_server(ACTIVE_PORT)
             return
+        if route == "/scc/upload":
+            self._scc_upload()
+            return
         if route == "/post-comments/upload":
             self._post_comments_upload()
             return
@@ -274,6 +277,31 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _scc_upload(self):
+        """Accept {filename, content_base64} for the manually-exported SCC CSV.
+
+        SCC's automated browser lane is retired (SCC now blocks it; scc_client.py was
+        removed). The operator uploads SCC's native export here instead; run_controller
+        validates it and start_run() passes it to run_daily.py via --scc-csv.
+        """
+        body = self._read_body()
+        filename = body.get("filename") or ""
+        content_b64 = body.get("content_base64") or ""
+        if not content_b64:
+            self._send_json({"uploaded": False, "reason": "No file content received"}, status=409)
+            return
+        try:
+            raw = base64.b64decode(content_b64, validate=True)
+        except (ValueError, binascii.Error):
+            self._send_json({"uploaded": False, "reason": "Invalid file encoding"}, status=409)
+            return
+        result = rc.CONTROLLER.upload_scc_csv(raw, filename)
+        if result.get("uploaded"):
+            # Server-triggers-continue: a validated upload immediately resumes the paused
+            # run (Phase B) in the same call, so the frontend only needs this one request.
+            result["continue"] = rc.CONTROLLER.continue_after_scc()
+        self._send_json(result, status=200 if result.get("uploaded") else 409)
 
     def _post_comments_upload(self):
         """Accept {filename, content_base64}, decode, and start a dry-run preview."""

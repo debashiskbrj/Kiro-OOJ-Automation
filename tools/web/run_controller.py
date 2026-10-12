@@ -51,6 +51,36 @@ SOURCE_CSV = {
 }
 
 
+# Required columns in a manually-uploaded SCC export CSV (same shape the retired
+# automated SCC lane used to produce — see tools/run_daily.py::load_scc_csv).
+SCC_REQUIRED_COLUMNS = ["Tracking ID", "State", "Destination", "Source", "Ship Option"]
+
+
+def _validate_scc_csv(path: Path) -> dict:
+    """Lightweight structural check of an uploaded SCC CSV. Never raises."""
+    import csv as _csv
+
+    try:
+        with open(path, encoding="utf-8-sig", newline="") as fh:
+            reader = _csv.DictReader(fh)
+            rows = list(reader)
+            fieldnames = reader.fieldnames or []
+    except (OSError, UnicodeDecodeError, _csv.Error) as exc:
+        return {"ok": False, "reason": f"could not read file as CSV: {exc}"}
+
+    if not fieldnames:
+        return {"ok": False, "reason": "file is empty or has no header row"}
+    missing = [c for c in SCC_REQUIRED_COLUMNS if c not in fieldnames]
+    if missing:
+        return {"ok": False, "reason": f"missing required column(s): {', '.join(missing)}"}
+    if not rows:
+        return {"ok": False, "reason": "file has a header row but no data rows"}
+    blank = [i for i, row in enumerate(rows, start=2) if not str(row.get("Tracking ID") or "").strip()]
+    if blank:
+        return {"ok": False, "reason": f"blank Tracking ID in row(s): {blank[:5]}"}
+    return {"ok": True, "rows": len(rows)}
+
+
 def source_csv_path(run_dir: Path, name: str) -> Path | None:
     """Return the CSV a given source produced in this run, if it exists yet."""
     filename = SOURCE_CSV.get(name)
@@ -146,6 +176,26 @@ def launch_midway_prompt() -> dict:
         return {"launched": False, "reason": str(exc)}
 
 
+def _build_ads_flags(ads_approved: bool, allow_source_failures: bool) -> tuple[list[str], bool]:
+    """Shared ADS-approval/partial-download flag logic for both the Phase A and Phase B
+    subprocess spawns, so a resumed (Phase B) run always reapplies the same flags the
+    operator chose at Start.
+
+    Returns (extra_args, partial): extra_args is appended to the run_daily.py command
+    line; partial mirrors whether this run is intentionally missing ADS data.
+    """
+    if ads_approved:
+        partial = False
+        extra = ["--allow-plaintext-ads"]
+    else:
+        # Without ADS approval the run is intentionally partial (ADS skipped).
+        partial = True
+        extra = ["--skip", "ads", "--allow-partial"]
+    if allow_source_failures:
+        extra.append("--allow-source-failures")
+    return extra, partial
+
+
 class RunController:
     """Owns at most one active pipeline run at a time."""
 
@@ -163,13 +213,87 @@ class RunController:
         self._ever_started: bool = False
         self._stopped: bool = False
         self._allow_source_failures: bool = False
+        # SCC's automated browser lane is retired (SCC now blocks it; tools/scc_client.py
+        # was removed). The operator uploads SCC's export CSV manually instead; this path
+        # is validated and stored here, then passed to run_daily.py via --scc-csv.
+        self._scc_upload_path: Path | None = None
+        self._scc_upload_error: str | None = None
+        # Two-phase pause-for-manual-SCC-upload state machine. A run now starts with
+        # Phase A (preflight + SIM-T ticket pull only) and pauses here; the SCC upload
+        # control lives inside the SCC progress card while _phase == "awaiting_scc_upload".
+        # A validated upload flips to "scc_uploaded", then continue_after_scc() spawns
+        # Phase B (--resume-dir) and flips to "running".
+        self._phase: str = "idle"
+        self._scc_validation: dict | None = None
+        # Remembers the ADS-approval/partial-download flags chosen at Start, so Phase B's
+        # spawn can reapply the exact same flag logic via _build_ads_flags.
+        self._run_flags: dict | None = None
 
     # --------------------------------------------------------------- lifecycle
     def is_running(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
 
+    def scc_upload_status(self) -> dict:
+        """Current state of the manual SCC upload (replaces the retired SCC automation)."""
+        return {
+            "uploaded": self._scc_upload_path is not None,
+            "filename": self._scc_upload_path.name if self._scc_upload_path else None,
+            "error": self._scc_upload_error,
+        }
+
+    def upload_scc_csv(self, file_bytes: bytes, filename: str) -> dict:
+        """Validate and store a manually-uploaded SCC export CSV.
+
+        SCC's automated browser lane is retired (SCC now blocks it; tools/scc_client.py
+        was removed from the project). The operator searches the SIM-T TIDs on the SCC
+        site themselves, exports the CSV by hand, and uploads it here. The file is
+        validated for the same shape the old automation produced, then its path is
+        stored so start_run() can pass it straight to run_daily.py --scc-csv.
+        """
+        with self._lock:
+            # Guard: only accept an upload once Phase A has finished (no live subprocess),
+            # the run directory has resolved, and we are actually waiting on SCC.
+            if (
+                self.is_running()
+                or self._resolve_run_dir() is None
+                or self._phase not in ("awaiting_scc_upload", "scc_uploaded")
+            ):
+                return {
+                    "uploaded": False,
+                    "reason": "Phase A has not finished yet; wait for the SIM-T pull to complete",
+                }
+
+            safe_name = "".join(c for c in filename if c.isalnum() or c in "._-") or "scc_upload.csv"
+            dest_dir = TOOLS / "captures" / "scc_uploads"
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest = dest_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{safe_name}"
+            try:
+                dest.write_bytes(file_bytes)
+            except OSError as exc:
+                self._scc_upload_error = f"could not save upload: {exc}"
+                return {"uploaded": False, "reason": self._scc_upload_error}
+
+            validation = _validate_scc_csv(dest)
+            if not validation["ok"]:
+                self._scc_upload_error = validation["reason"]
+                # Do not advance the phase on a rejected upload — stay awaiting_scc_upload.
+                return {"uploaded": False, "reason": validation["reason"]}
+
+            self._scc_upload_path = dest
+            self._scc_upload_error = None
+            self._scc_validation = validation
+            self._phase = "scc_uploaded"
+            return {"uploaded": True, "rows": validation["rows"], "filename": dest.name}
+
     def start_run(self, ads_approved: bool, allow_source_failures: bool = False) -> dict:
-        """Spawn a run. A full (publishable) run requires ADS approval.
+        """Spawn Phase A: preflight + the SIM-T ticket pull only. A full (publishable)
+        run requires ADS approval.
+
+        Start requires only a granted Midway session (and a free Edge profile) — SCC's
+        automated browser lane is retired, so no SCC upload is required before Start.
+        Phase A exits before the SCC stage; the SCC progress card then prompts for a
+        manual upload, and a valid upload auto-continues as Phase B in the same run
+        directory (see continue_after_scc).
 
         When ``allow_source_failures`` is set, a source that fails to fetch is left blank
         and the workbook is still produced (labelled PARTIAL) rather than blocking.
@@ -187,21 +311,20 @@ class RunController:
                     "preflight": pre,
                 }
 
-            cmd = [sys.executable, "-X", "utf8", str(RUN_DAILY)]
-            if ads_approved:
-                self._partial = False
-                cmd.append("--allow-plaintext-ads")
-            else:
-                # Without ADS approval the run is intentionally partial (ADS skipped).
-                self._partial = True
-                cmd += ["--skip", "ads", "--allow-partial"]
+            cmd = [sys.executable, "-X", "utf8", str(RUN_DAILY), "--stop-after-tickets"]
+            extra, partial = _build_ads_flags(ads_approved, allow_source_failures)
+            cmd += extra
+            self._partial = partial
             self._allow_source_failures = allow_source_failures
-            if allow_source_failures:
-                cmd.append("--allow-source-failures")
+            self._run_flags = {"ads_approved": ads_approved, "allow_source_failures": allow_source_failures}
 
             self._start_error = None
             self._run_dir = None
             self._stamp = None
+            # A fresh Start always clears any previous run's leftover upload state.
+            self._scc_upload_path = None
+            self._scc_upload_error = None
+            self._scc_validation = None
             # Timestamp just before spawn so we can distinguish this run's directory
             # from any earlier run's `_latest.txt`.
             self._started_at = time.time()
@@ -216,14 +339,55 @@ class RunController:
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
             )
             self._stopped = False
+            self._phase = "awaiting_scc_upload"
             self._reader = threading.Thread(target=self._drain_stdout, daemon=True)
             self._reader.start()
             return {"started": True, "partial": self._partial}
+
+    def continue_after_scc(self) -> dict:
+        """Spawn Phase B: resume the paused run in the same directory now that a valid
+        SCC CSV has been uploaded. Reapplies the exact ADS-approval/partial flags Phase A
+        was started with (see _build_ads_flags), then re-arms the stdout-drain thread
+        exactly as start_run does.
+        """
+        with self._lock:
+            if self._phase != "scc_uploaded":
+                return {"started": False, "reason": "No validated SCC upload yet"}
+            run_dir = self._resolve_run_dir()
+            if run_dir is None or self._scc_upload_path is None:
+                return {"started": False, "reason": "Run directory or SCC upload path not resolved"}
+
+            cmd = [
+                sys.executable, "-X", "utf8", str(RUN_DAILY),
+                "--resume-dir", str(run_dir), "--scc-csv", str(self._scc_upload_path),
+            ]
+            extra, partial = _build_ads_flags(**self._run_flags)
+            cmd += extra
+            self._partial = partial
+
+            self._proc = subprocess.Popen(
+                cmd,
+                cwd=str(TOOLS),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            )
+            self._stopped = False
+            self._phase = "running"
+            self._reader = threading.Thread(target=self._drain_stdout, daemon=True)
+            self._reader.start()
+            return {"started": True}
 
     def stop_run(self) -> dict:
         """Abort the active run and its whole process tree (browser workers included)."""
         with self._lock:
             if not self.is_running():
+                # No live subprocess — this covers being stopped while paused awaiting
+                # the manual SCC upload (Phase A already exited cleanly). Reset to idle
+                # so Start is offered again.
+                self._phase = "idle"
                 return {"stopped": False, "reason": "No run is in progress"}
             pid = self._proc.pid
             try:
@@ -297,6 +461,9 @@ class RunController:
             "blank_sources": [],
             "verification": None,
             "desktop_file": None,
+            "scc_upload": self.scc_upload_status(),
+            "scc_phase": self._phase,
+            "scc_validation": self._scc_validation,
         }
         if not run_dir:
             return status

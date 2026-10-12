@@ -36,6 +36,11 @@ from ooj_paths import EDGE_PROFILE
 HERE = Path(__file__).parent
 CAPTURES = HERE / "captures"
 RUNS = CAPTURES / "runs"
+DESKTOP = Path.home() / "Desktop"
+# The final filled workbook is published to the Desktop as OOJ_Process_Filled_<stamp>.xlsx
+# (or OOJ_Process_Filled_PARTIAL_<stamp>.xlsx). Older such exports are pruned at the start
+# of each fresh run so only today's output remains (see wipe_old_runs).
+DESKTOP_EXPORT_PREFIX = "OOJ_Process_Filled_"
 # Local task history (run folders and per-source capture artifacts) is kept this many
 # days; anything older is deleted automatically at the start of each run.
 HISTORY_RETENTION_DAYS = 7
@@ -120,6 +125,100 @@ def prune_history(retention_days: int = HISTORY_RETENTION_DAYS, log=print) -> di
     return {"removed_dirs": removed_dirs, "removed_files": removed_files}
 
 
+def wipe_old_runs(current_dir: Path, log=print) -> dict:
+    """Delete ALL prior run data at the start of a fresh run (operator rule).
+
+    Each automation run must work only on data it freshly fetched during that run, so
+    at the start of every fresh Start (Phase A) we remove every previous run folder
+    under captures/runs and every per-source capture artifact under captures/<source>/,
+    regardless of age — a hard wipe, not a retention window.
+
+    It also prunes OLD published exports from the Desktop (OOJ_Process_Filled_*.xlsx),
+    keeping only files produced today, so stale output workbooks do not pile up.
+
+    Deliberately preserved:
+      * ``current_dir`` — the run directory this very run just created (its freshly
+        pulled SIM-T data must survive the wipe).
+      * ``scc_enum_map.json`` — the long-lived SCC State enum->text ground-truth overlay.
+      * Desktop exports produced TODAY — only exports from a previous day are removed, so
+        a second run on the same day never deletes an export you made earlier today.
+    Never touches source code, the template, tests, or any other Desktop file (only the
+    automation's own OOJ_Process_Filled_* workbooks). Safe if a file is locked (never raises).
+    """
+    if not CAPTURES.exists():
+        return {"removed_dirs": 0, "removed_files": 0}
+    try:
+        current_resolved = current_dir.resolve()
+    except OSError:
+        current_resolved = current_dir
+    removed_dirs = 0
+    removed_files = 0
+
+    # 1. Every prior run folder under captures/runs, except this run's own directory.
+    if RUNS.exists():
+        for entry in RUNS.iterdir():
+            if entry.name == "_latest.txt":
+                continue
+            try:
+                if entry.resolve() == current_resolved:
+                    continue
+            except OSError:
+                pass
+            if entry.is_dir():
+                shutil.rmtree(entry, ignore_errors=True)
+                removed_dirs += 1
+            elif entry.is_file():
+                try:
+                    entry.unlink()
+                    removed_files += 1
+                except OSError:
+                    pass
+
+    # 2. Every per-source capture artifact, keeping only the SCC enum ground-truth overlay.
+    for source_dir in CAPTURES.iterdir():
+        if not source_dir.is_dir() or source_dir.name == "runs":
+            continue
+        for entry in source_dir.rglob("*"):
+            if entry.name == "scc_enum_map.json":
+                continue
+            if entry.is_file():
+                try:
+                    entry.unlink()
+                    removed_files += 1
+                except OSError:
+                    pass
+
+    # 3. Old published export workbooks on the Desktop (OOJ_Process_Filled_*.xlsx).
+    # Keep today's; remove any from a previous day so stale outputs do not accumulate.
+    # Only the automation's own export files are matched — no other Desktop file is touched.
+    removed_exports = 0
+    try:
+        today = datetime.now().date()
+        if DESKTOP.is_dir():
+            for entry in DESKTOP.glob(f"{DESKTOP_EXPORT_PREFIX}*.xlsx"):
+                if not entry.is_file():
+                    continue
+                try:
+                    produced = datetime.fromtimestamp(entry.stat().st_mtime).date()
+                except OSError:
+                    continue
+                if produced < today:
+                    try:
+                        entry.unlink()
+                        removed_exports += 1
+                    except OSError:
+                        pass
+    except Exception:
+        # Desktop pruning is best-effort and must never block a run.
+        pass
+
+    log(f"fresh-run wipe: removed {removed_dirs} prior run folders, {removed_files} "
+        f"capture files, and {removed_exports} old Desktop export(s) "
+        f"(keeping this run's data, scc_enum_map.json, and today's exports)")
+    return {"removed_dirs": removed_dirs, "removed_files": removed_files,
+            "removed_exports": removed_exports}
+
+
 def clean_header(value) -> str:
     """Normalize only whitespace in template headers; wording/case remain authoritative."""
     return " ".join(str(value).split()) if value is not None else ""
@@ -137,6 +236,16 @@ def csv_safe(value):
     if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):
         return "'" + value
     return value
+
+
+def derive_tids(tech: list[dict]) -> list[str]:
+    """Unique, ordered lookup TIDs from Tech_Data rows (drops "TID not found")."""
+    tids = [
+        str(row["impacted_tracking_ids"])
+        for row in tech
+        if row["impacted_tracking_ids"] != "TID not found"
+    ]
+    return list(dict.fromkeys(tids))
 
 
 EXCEL_ERRORS = {"#REF!", "#NAME?", "#VALUE!", "#DIV/0!", "#NUM!", "#NULL!", "#SPILL!", "#CALC!"}
@@ -234,6 +343,22 @@ def tech_from_tid_file(run: Run, path: str) -> list[dict]:
                      "station_code": station.strip().upper(), "zone": "", "impacted_tracking_ids": tid.strip(),
                      "attachments": "", "status": "", "IssueUrl": "", "ShortId": ""})
     run.log(f"ad-hoc mode: {len(rows)} TIDs from {path}")
+    return rows
+
+
+def load_tech_data(path: Path) -> list[dict]:
+    """Re-load Phase A's tech_data.csv for Phase B (two-phase pause-for-manual-SCC
+    design — see --resume-dir below). Re-parses createdAt/lastUpdatedAt back into
+    datetimes (blank -> None) to match the in-memory shape pull_tickets/
+    tech_from_tid_file produce; every other field stays the string DictReader read."""
+    rows = []
+    with open(path, encoding="utf-8-sig", newline="") as fh:
+        for row in csv.DictReader(fh):
+            row = dict(row)
+            for key in ("createdAt", "lastUpdatedAt"):
+                value = row.get(key)
+                row[key] = datetime.fromisoformat(value) if value else None
+            rows.append(row)
     return rows
 
 
@@ -353,22 +478,34 @@ def write_tid_file(run: Run, name: str, tids: list[str]) -> Path:
     return path
 
 
-def lane_scc(run: Run, tids):
-    tid_file = write_tid_file(run, "scc", tids)
+SCC_REQUIRED_COLUMNS = ["Tracking ID", "State", "Destination", "Source", "Ship Option"]
+
+
+def load_scc_csv(run: Run, tids: list[str], scc_csv_path: str) -> list[dict]:
+    """Load a manually-uploaded SCC export in place of the retired browser lane.
+
+    RETIRED 2026-10-12: SCC now blocks the automated browser flow (search + Export to
+    CSV), and tools/scc_client.py (the module that drove that flow) has been removed
+    from the project. SCC is now a manual step: the operator searches the SIM-T TIDs
+    on the SCC site themselves and exports the CSV by hand, then uploads it through
+    the web UI, which passes it to this run via --scc-csv. This loader reproduces the
+    exact same output shape lane_scc used to produce (same columns, same scc.csv
+    handoff file, same run.summary["scc"] shape), so every downstream lane (GCRS,
+    Polygon, ADS, template fill) is unaffected and needs no changes.
+    """
+    src = Path(scc_csv_path)
+    if not src.is_file():
+        raise RuntimeError(f"--scc-csv file not found: {src}")
     output = run.dir / "scc.csv"
-    run_browser_worker(
-        run,
-        "scc",
-        [sys.executable, "-u", "-X", "utf8", str(HERE / "scc_client.py"), "--tid-file", str(tid_file), "--out", str(output)],
-        # High-volume SCC searches buffer to 100% and can take a long time to produce
-        # the CSV; allow the worker enough headroom above the client's 45-min waits.
-        timeout_s=60 * 60,
-    )
+    shutil.copyfile(src, output)
     rows = ft.read_csv(output)
+    missing_cols = [c for c in SCC_REQUIRED_COLUMNS if rows and c not in rows[0]]
+    if rows and missing_cols:
+        raise RuntimeError(f"uploaded SCC CSV is missing required columns: {missing_cols}")
     returned = {normalize_tid(row.get("Tracking ID")) for row in rows}
     missing = [tid for tid in tids if normalize_tid(tid) not in returned]
     run.summary["scc"] = {"requested": len(tids), "rows": len(rows), "missing": len(missing)}
-    run.log(f"SCC: accepted {len(rows)} output rows; missing/no-data={len(missing)}")
+    run.log(f"SCC (manual upload): accepted {len(rows)} output rows; missing/no-data={len(missing)}")
     return rows
 
 
@@ -731,6 +868,28 @@ def main():
     )
     ap.add_argument("--no-midway-check", action="store_true", help="skip Midway check for ad-hoc lanes")
     ap.add_argument(
+        "--scc-csv",
+        default=None,
+        help="path to a manually-uploaded SCC export CSV (replaces the retired automated SCC lane)",
+    )
+    # Two-phase pause-for-manual-SCC-upload design: Phase A (--stop-after-tickets) does
+    # preflight + the SIM-T ticket pull only, then exits before the SCC stage so the
+    # operator can search the TIDs on the SCC site and export the CSV by hand. Phase B
+    # (--resume-dir) resumes in that SAME run directory once the operator has uploaded
+    # the export, loading the frozen tech_data.csv/tids.txt Phase A wrote and then
+    # running the unchanged SCC-onward pipeline (load_scc_csv -> EagleEye -> PNAMA ->
+    # DSR -> GCRS -> Polygon -> ADS -> fill/recalc) exactly as a single-shot run would.
+    ap.add_argument(
+        "--stop-after-tickets",
+        action="store_true",
+        help="Phase A: preflight + SIM-T ticket pull only, then exit before the SCC stage",
+    )
+    ap.add_argument(
+        "--resume-dir",
+        default=None,
+        help="Phase B: resume a run paused by --stop-after-tickets in this run directory",
+    )
+    ap.add_argument(
         "--allow-plaintext-ads",
         action="store_true",
         help="explicitly approve this run's TID/address upload to the plaintext ADS endpoint",
@@ -760,57 +919,85 @@ def main():
             "--allow-plaintext-ads only with explicit approval, or skip ads"
         )
 
-    run = Run(datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
-    # Make the active run directory discoverable to an external supervisor (the local
-    # web runner) without guessing by mtime: print it as the first stdout line and
-    # record a stable pointer file. This changes no pipeline behavior.
-    print(f"RUN_DIR={run.dir}", flush=True)
-    try:
-        (RUNS / "_latest.txt").write_text(str(run.dir), encoding="utf-8")
-    except OSError:
-        pass
-    run.log(
-        f"=== OOJ daily run {run.stamp} skip={sorted(skip)} "
-        f"max_tids={args.max_tids} tids_file={args.tids_file}"
-    )
-    # Enforce the 7-day local history retention at the start of every run.
-    try:
-        prune_history(log=run.log)
-    except Exception as exc:
-        run.log(f"history prune skipped: {type(exc).__name__}: {str(exc)[:120]}")
-
-    if run.stage(
-        "preflight",
-        preflight,
-        run,
-        require_midway=not args.no_midway_check,
-        require_builder_mcp=not bool(args.tids_file),
-    ) is None:
-        sys.exit(2)
-    if args.tids_file:
-        tech = run.stage("tickets", tech_from_tid_file, run, args.tids_file)
-    else:
-        tech = run.stage("tickets", pull_tickets, run, args.max_pages)
-    if not tech:
-        sys.exit(2)
-
-    tids = [
-        str(row["impacted_tracking_ids"])
-        for row in tech
-        if row["impacted_tracking_ids"] != "TID not found"
-    ]
-    tids = list(dict.fromkeys(tids))
-    if args.max_tids:
-        tids = tids[:args.max_tids]
-        selected = set(tids)
-        tech = [
-            row
-            for row in tech
-            if str(row["impacted_tracking_ids"]) in selected
-            or row["impacted_tracking_ids"] == "TID not found"
+    # --- Phase A/Phase B split point ---------------------------------------------
+    # Two-phase pause-for-manual-SCC-upload design (see --stop-after-tickets/
+    # --resume-dir help above): Phase B resumes an existing run directory that Phase A
+    # already created and populated with tech_data.csv/tids.txt, instead of starting a
+    # fresh stamped Run. Everything from here through the end of main() stays the same
+    # source code for both phases (and for an unsplit, single-shot invocation) — only
+    # how `run`, `tech` and `tids` get populated differs.
+    if args.resume_dir:
+        run = Run(Path(args.resume_dir).name, directory=Path(args.resume_dir))
+        print(f"RUN_DIR={run.dir}", flush=True)
+        run.log(f"=== OOJ daily run {run.stamp} RESUMED (Phase B) after manual SCC upload")
+        tech = load_tech_data(run.dir / "tech_data.csv")
+        tids = [
+            line
+            for line in (run.dir / "tids.txt").read_text(encoding="utf-8").splitlines()
+            if line.strip()
         ]
-    run.log(f"lookup TIDs: {len(tids)}; ordered Tech_Data rows: {len(tech)}")
-    (run.dir / "tids.txt").write_text("\n".join(tids), encoding="utf-8")
+        run.log(f"Phase B: loaded {len(tech)} Tech_Data rows and {len(tids)} lookup TIDs from disk")
+    else:
+        run = Run(datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
+        # Make the active run directory discoverable to an external supervisor (the local
+        # web runner) without guessing by mtime: print it as the first stdout line and
+        # record a stable pointer file. This changes no pipeline behavior.
+        print(f"RUN_DIR={run.dir}", flush=True)
+        try:
+            (RUNS / "_latest.txt").write_text(str(run.dir), encoding="utf-8")
+        except OSError:
+            pass
+        run.log(
+            f"=== OOJ daily run {run.stamp} skip={sorted(skip)} "
+            f"max_tids={args.max_tids} tids_file={args.tids_file}"
+        )
+        # Operator rule: each run works only on freshly fetched data, so wipe ALL prior
+        # run folders and captures at the start of every fresh Start (keeping only this
+        # run's own directory and the scc_enum_map.json overlay). This runs in Phase A
+        # only; Phase B (--resume-dir) above never wipes — it resumes this same run dir.
+        try:
+            wipe_old_runs(run.dir, log=run.log)
+        except Exception as exc:
+            run.log(f"fresh-run wipe skipped: {type(exc).__name__}: {str(exc)[:120]}")
+
+        if run.stage(
+            "preflight",
+            preflight,
+            run,
+            require_midway=not args.no_midway_check,
+            require_builder_mcp=not bool(args.tids_file),
+        ) is None:
+            sys.exit(2)
+        if args.tids_file:
+            tech = run.stage("tickets", tech_from_tid_file, run, args.tids_file)
+        else:
+            tech = run.stage("tickets", pull_tickets, run, args.max_pages)
+        if not tech:
+            sys.exit(2)
+
+        tids = derive_tids(tech)
+        if args.max_tids:
+            tids = tids[:args.max_tids]
+            selected = set(tids)
+            tech = [
+                row
+                for row in tech
+                if str(row["impacted_tracking_ids"]) in selected
+                or row["impacted_tracking_ids"] == "TID not found"
+            ]
+        run.log(f"lookup TIDs: {len(tids)}; ordered Tech_Data rows: {len(tech)}")
+        (run.dir / "tids.txt").write_text("\n".join(tids), encoding="utf-8")
+
+        if args.stop_after_tickets:
+            # Phase A stops here, before the SCC stage. The web controller's Phase B
+            # spawn (--resume-dir) picks this run directory back up once the operator
+            # has uploaded SCC's export CSV.
+            run.write_progress()
+            run.log(
+                "=== Phase A done: preflight + SIM-T ticket pull complete. Stopping before "
+                "the SCC stage; resume with --resume-dir once the SCC CSV is uploaded."
+            )
+            sys.exit(0)
 
     # Execution order shown step by step: SCC → EagleEye → PNAMA → DSR → GCRS → Polygon → ADS.
     #  * SCC runs first on the main thread (shared Edge profile); it produces the genuine
@@ -831,8 +1018,17 @@ def main():
     concurrent: dict[str, object] = {"eagle": []}
     threads: list[threading.Thread] = []
 
-    # Step 1 of the enrichment lanes: SCC first (main thread, shared Edge profile).
-    scc = run.stage("scc", lane_scc, run, tids) if "scc" not in skip else []
+    # Step 1 of the enrichment lanes: SCC first. RETIRED 2026-10-12: the automated
+    # browser lane (shared Edge profile) is gone; SCC is now a manual upload (see
+    # load_scc_csv above). When --scc-csv is given, load that upload here in SCC's
+    # old pipeline position so every downstream lane is unaffected.
+    if args.scc_csv:
+        scc = run.stage("scc", load_scc_csv, run, tids, args.scc_csv)
+    elif "scc" not in skip:
+        scc = []
+        run.log("SCC: no --scc-csv provided and automated SCC is retired; proceeding with 0 rows")
+    else:
+        scc = []
 
     # Step 2: EagleEye (API) starts now and overlaps the remaining browser lanes.
     if "eagle" not in skip:

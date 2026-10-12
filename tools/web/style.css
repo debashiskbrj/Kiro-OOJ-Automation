@@ -148,6 +148,9 @@ button.working {
 .badge.running { background: #1f3b63; color: #79c0ff; }
 .badge.done { background: #163d24; color: #56d364; }
 .badge.error { background: #4a1d1d; color: #ff7b72; }
+/* SCC's automated browser lane is retired; this badge marks the card paused and
+   waiting on the operator's manual CSV upload (needs-action look, like .banner.warn). */
+.badge.awaiting { background: #3a2f10; color: #e3b341; }
 .source .counts { color: var(--muted); font-size: 12px; margin-top: 6px; white-space: pre-line; }
 .pbar {
   position: relative; height: 14px; margin-top: 8px; border-radius: 7px;
@@ -164,6 +167,24 @@ button.working {
   text-decoration: none; border: 1px solid #1f3b63; border-radius: 6px; padding: 3px 8px;
 }
 .source .src-dl:hover { background: #1f3b63; color: #fff; }
+/* Manual SCC upload control rendered INSIDE the SCC progress card (card #2). SCC's
+   automated browser lane is retired; sized to fit the narrower .source card width
+   (the .sources grid uses minmax(150px, 1fr) columns) rather than the full-width
+   Start card the control used to live in. */
+.source .scc-upload-box {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.source .scc-upload-box input[type="file"] {
+  max-width: 100%;
+  font-size: 12px;
+  color: var(--muted);
+}
+.source .scc-upload-box button {
+  padding: 6px 10px;
+  font-size: 12px;
+  min-height: 30px;
+}
 
 .copy-btn {
   font-size: 11px; padding: 2px 10px; margin-left: 10px; border-radius: 6px;

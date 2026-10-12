@@ -58,3 +58,10 @@ Desktop.ini
 *.tmp
 *.tmp.txt
 check_env.tmp.txt
+
+# ── Stale/duplicate doc artifact (Docs/PRD-OOJ-Automation.md is the source of truth) ──
+# Anchored to root so an intentional Docs/-level file of the same name is not matched.
+/PRD-OOJ-Automation.docx
+
+# ── Agent planning/review scratch (not part of the automation) ──
+.agents/

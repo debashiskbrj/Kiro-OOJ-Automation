@@ -20,6 +20,20 @@ const STEP_ORDER = ["tickets", "scc", "eagle", "pnama", "dsr", "gcrs", "polygon"
 let midwayReady = false;
 let runActive = false;
 let pollTimer = null;
+// SCC's automated browser search is retired (SCC now blocks it). The run now pauses
+// after the SIM-T ticket pull (Phase A) and the SCC progress card itself prompts for
+// a manual upload; the message/color below survive each renderSources() re-render
+// since the file input/button/status line are recreated from status.scc_phase on
+// every poll tick.
+let sccUploadMessage = "";
+let sccUploadOk = null;
+// Last full /status payload, kept so sccUpload() can re-render the SCC card
+// immediately (e.g. to show "Uploading\u2026") without waiting for the next poll tick.
+let lastStatus = {};
+// Phases where Phase A has already exited (no live subprocess) but the run has not
+// finished \u2014 we are simply paused waiting on the operator's SCC upload. tick()'s
+// "run finished" check must not treat this pause as the run being over.
+const SCC_PAUSE_PHASES = ["awaiting_scc_upload", "scc_uploaded"];
 
 async function getJSON(url) {
   const res = await fetch(url, { cache: "no-store" });
@@ -69,6 +83,70 @@ async function refreshPreflight() {
     startState.textContent = "Ready.";
   }
 }
+
+// -------------------------------------------------------- SCC manual upload
+// The file input/button/status line live INSIDE the SCC progress card and are
+// recreated by renderSources() on every poll tick, so this function writes its
+// result into module-level variables (sccUploadMessage/sccUploadOk) instead of
+// touching the DOM directly \u2014 renderSources() is the single source of truth for
+// that line's text/color, and a direct DOM write here would be clobbered by the
+// next poll's re-render.
+async function sccUpload() {
+  const input = $("scc-file-input");
+  const file = input && input.files && input.files[0];
+  if (!file) {
+    sccUploadMessage = "Choose a CSV file first.";
+    sccUploadOk = false;
+    renderSources(lastStatus || {});
+    return;
+  }
+  sccUploadMessage = "Uploading\u2026";
+  sccUploadOk = null;
+  renderSources(lastStatus || {});
+  let contentBase64;
+  try {
+    contentBase64 = await fileToBase64(file);
+  } catch (e) {
+    sccUploadMessage = "Could not read the file.";
+    sccUploadOk = false;
+    renderSources(lastStatus || {});
+    return;
+  }
+  const { ok, data } = await postJSON("/scc/upload", {
+    filename: file.name,
+    content_base64: contentBase64,
+  });
+  if (!ok || !data.uploaded) {
+    sccUploadMessage = "Rejected: " + (data.reason || "unknown error");
+    sccUploadOk = false;
+    renderSources(lastStatus || {});
+    return;
+  }
+  // The server auto-continues (Phase B) in the same /scc/upload call and returns the
+  // result under data.continue. Surface a clear failure if Phase B did not start, and
+  // make sure polling is alive so the progress cards advance.
+  const cont = data.continue || {};
+  if (cont.started === false) {
+    sccUploadMessage = "Upload accepted but the run could not resume: " + (cont.reason || "unknown error");
+    sccUploadOk = false;
+    renderSources(lastStatus || {});
+    return;
+  }
+  sccUploadMessage =
+    "Uploaded \u201c" + (data.filename || file.name) + "\u201d (" + data.rows + " rows). Resuming the pipeline\u2026";
+  sccUploadOk = true;
+  runActive = true;
+  // Re-arm polling immediately (it may have been cleared) and poll now so the SCC card
+  // flips from the upload control to a running step without waiting for the next tick.
+  startPolling();
+}
+// The SCC card's file input/button are recreated on every renderSources() call, so
+// bind the click handler once via delegation on the stable #sources container.
+$("sources").addEventListener("click", (event) => {
+  if (event.target && event.target.id === "scc-upload-btn") {
+    sccUpload();
+  }
+});
 
 $("midway-btn").addEventListener("click", async () => {
   $("midway-state").textContent = "Opening the Midway PIN prompt in a terminal window\u2026";
@@ -136,7 +214,8 @@ async function tick() {
   } catch (e) {
     return;
   }
-  renderSources(status.sources || {});
+  lastStatus = status;
+  renderSources(status);
   renderLog(status.log_tail || []);
   renderTable();
   renderFinish(status);
@@ -144,8 +223,8 @@ async function tick() {
   // Keep Stop enabled only while a run is actually running.
   $("stop-btn").disabled = !status.running;
 
-  if (!status.running && (status.stamp || status.stopped)) {
-    // Run finished or was stopped.
+  if (!status.running && !SCC_PAUSE_PHASES.includes(status.scc_phase) && (status.stamp || status.stopped)) {
+    // Run finished or was stopped (not merely paused awaiting the SCC upload).
     clearInterval(pollTimer);
     pollTimer = null;
     runActive = false;
@@ -156,12 +235,76 @@ async function tick() {
   }
 }
 
-function renderSources(sources) {
+function renderSources(status) {
+  const sources = status.sources || {};
+  const sccPhase = status.scc_phase;
+  const inSccPause = sccPhase === "awaiting_scc_upload" || sccPhase === "scc_uploaded";
   const wrap = $("sources");
+
+  // Preserve the operator's chosen SCC file across re-renders. renderSources runs on
+  // every 2s poll and rebuilds all cards so the other steps (SIM-T, EagleEye, ...)
+  // update live. A fresh <input type="file"> would lose the selected file, so we DETACH
+  // the existing input node and re-attach the SAME node into the rebuilt SCC card,
+  // keeping its selection intact. All other cards still rebuild normally.
+  let preservedFileInput = null;
+  if (inSccPause) {
+    const existing = $("scc-file-input");
+    if (existing) {
+      preservedFileInput = existing;
+      if (preservedFileInput.parentNode) {
+        preservedFileInput.parentNode.removeChild(preservedFileInput);
+      }
+    }
+  }
+
   wrap.innerHTML = "";
   STEP_ORDER.forEach((key, i) => {
     const src = sources[key] || { status: "pending", counts: {} };
     const el = document.createElement("div");
+
+    if (key === "scc" && inSccPause) {
+      // SCC's automated browser lane is retired; the run pauses here until the
+      // operator uploads SCC's native export CSV, rendered INSIDE this card.
+      const uploading = sccPhase === "scc_uploaded";
+      el.className = "source step-running";
+      let messageHtml = "";
+      if (sccUploadMessage) {
+        const color = sccUploadOk === false ? "var(--warn)" : sccUploadOk === true ? "var(--ok)" : "var(--muted)";
+        messageHtml = `<p id="scc-upload-state" class="state" style="color:${color}">${escapeHtml(sccUploadMessage)}</p>`;
+      } else {
+        messageHtml = `<p id="scc-upload-state" class="state">No SCC file uploaded yet.</p>`;
+      }
+      el.innerHTML =
+        `<div class="step-head">` +
+        `<span class="step-num">${i + 1}</span>` +
+        `<span class="name">${SOURCE_LABELS[key] || key}</span>` +
+        `<span class="badge awaiting">awaiting upload</span>` +
+        `</div>` +
+        `<p class="hint">Download the SIM-T TIDs from card 1, search them in SCC, export the CSV, and upload it here.</p>` +
+        `<div class="btn-row scc-upload-box" id="scc-upload-row"></div>` +
+        messageHtml;
+      wrap.appendChild(el);
+
+      // Fill the upload row: reuse the preserved input (keeps the selected file) or
+      // create a fresh one on the first render into the pause state.
+      const row = el.querySelector("#scc-upload-row");
+      const fileInput = preservedFileInput || document.createElement("input");
+      if (!preservedFileInput) {
+        fileInput.type = "file";
+        fileInput.id = "scc-file-input";
+        fileInput.accept = ".csv";
+      }
+      fileInput.disabled = uploading;
+      const uploadBtn = document.createElement("button");
+      uploadBtn.id = "scc-upload-btn";
+      uploadBtn.type = "button";
+      uploadBtn.textContent = "Upload SCC CSV";
+      uploadBtn.disabled = uploading;
+      row.appendChild(fileInput);
+      row.appendChild(uploadBtn);
+      return;
+    }
+
     el.className = `source step-${src.status}`;
     const counts = Object.entries(src.counts || {})
       .filter(([, v]) => v !== null && v !== undefined)
@@ -220,6 +363,16 @@ function renderFinish(status) {
   const banner = $("verify-banner");
   const dlBtn = $("download-btn");
   const note = $("desktop-note");
+
+  // Paused after SIM-T awaiting the manual SCC upload: Phase A has exited (so
+  // status.running is false and status.stamp is set), but the run is NOT finished.
+  // Show the paused state and never fall through to the "partial run complete" banner.
+  if (SCC_PAUSE_PHASES.includes(status.scc_phase)) {
+    banner.className = "banner pending";
+    banner.textContent = "Paused \u2014 upload SCC's export CSV in the SCC card (step 2) to resume the run.";
+    dlBtn.disabled = true;
+    return;
+  }
 
   if (status.running) {
     banner.className = "banner pending";

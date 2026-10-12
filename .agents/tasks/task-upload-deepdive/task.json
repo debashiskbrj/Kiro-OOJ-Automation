@@ -1,7 +1,0 @@
-{
-  "task_id": "task-upload-deepdive",
-  "task_description": "Add a gated 'Upload file -> post comments' feature to the OOJ web UI (dry-run-first safety gate mirroring the ADS-approval pattern), and perform a safe, read-only code-quality deep dive across the existing pipeline modules.",
-  "status": "completed",
-  "feature_order": ["FEAT-001", "FEAT-002"],
-  "blocked_reason": null
-}

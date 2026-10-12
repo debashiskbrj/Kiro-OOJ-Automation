@@ -1,7 +1,0 @@
-{
-  "task_id": "task-gcrs-resilience",
-  "task_description": "Add two additive, read-only resilience features to the working OOJ automation: (A) a pre-run auth gate at preflight that classifies the GCRS SIW transport (mcscli healthy / edge-fallback fragile / unknown) and surfaces it, warn-only; (B) a per-batch Edge retry so one '/grbi' 'Failed to fetch' no longer blanks the whole GCRS lane (bounded retry, then degrade the failed batch's TIDs to errored and continue remaining batches). Do NOT change any existing pipeline behavior beyond these two additive features. Baseline 64 tests must stay green.",
-  "status": "completed",
-  "feature_order": ["FEAT-001", "FEAT-002"],
-  "blocked_reason": null
-}
