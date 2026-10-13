@@ -31,11 +31,16 @@ URL it settled on.
 2. **Start today's run** — optionally tick **Approve ADS upload** (required for a
    complete, downloadable workbook; leave unticked for a partial run with no
    download). Click **Start run**.
-3. **Progress** — eight source cards (SIM-T Tickets, EagleEye, SCC, PNAMA, DSR,
-   GCRS, Polygon, ADS) update in real time (running → done/error) with live counts,
-   plus a live log and the full enriched table as it fills. The page never shows a
-   previous run's numbers: until you start a run this session the cards stay
-   "pending".
+3. **Progress** — eight source cards (SIM-T Tickets, SCC, EagleEye, PNAMA, DSR,
+   GCRS, Polygon, ADS) update in real time with live counts, plus a live log and the
+   full enriched table as it fills. The page never shows a previous run's numbers:
+   until you start a run this session the cards stay "pending". **The run pauses
+   after the SIM-T ticket pull**: SCC's automated browser lane is retired (SCC now
+   blocks automated browsing), so the SCC card shows an **"awaiting upload"** badge
+   with a file picker and an **Upload SCC CSV** button. Search the SIM-T TIDs in SCC
+   yourself, export SCC's native CSV, and upload it there — a valid upload is
+   validated against SCC's expected columns and automatically resumes the run from
+   SCC onward; a rejected upload shows the reason and lets you try again.
 4. **Result** — when the run finishes, the page runs the engine's own accuracy gate
    (all required lanes ok, read-back ok, polygon VERIFY ok). Only then does the
    **Download** button enable; the workbook is also copied to your Desktop as
@@ -62,11 +67,28 @@ If any of these fail, the workbook is **not** offered for download.
 - `tools/web/index.html`, `app.js`, `style.css` — the page.
 - `tests/test_web_controller.py` — gate/parse/copy tests.
 
+## The `/scc/upload` endpoint
+
+`POST /scc/upload` takes the operator's manually-exported SCC CSV (base64-encoded in
+the request body) and hands it to `RunController.upload_scc_csv`, which:
+
+1. Validates the file has the expected columns (`SCC_REQUIRED_COLUMNS` — Tracking ID,
+   State, Destination, Source, Ship Option). A missing/invalid file is rejected with a
+   reason and the run stays paused for another attempt.
+2. On a valid upload, saves it and **immediately spawns Phase B**
+   (`run_daily.py --resume-dir <run> --scc-csv <upload>`) in the same call, so the
+   pipeline resumes automatically — the operator does not click a separate "resume"
+   action.
+3. Returns `{"uploaded": true/false, "reason": ..., "continue": {...}}`; the page uses
+   this to flip the SCC card from "awaiting upload" to a running step.
+
 ## Concurrency
 
-SCC, PNAMA and DSR each drive the *same* single Edge automation profile, and
-Chromium allows only one process per profile — so those three run **serially** (one
-after another) to avoid a profile collision. EagleEye is a pure in-process API call
+PNAMA and DSR each drive the *same* single Edge automation profile, and Chromium
+allows only one process per profile — so those two run **serially** (one after
+another) to avoid a profile collision. SCC is no longer part of this app's own Edge
+automation: it is a manual CSV upload the operator performs in their own browser, so
+it does not compete for the shared profile. EagleEye is a pure in-process API call
 (no browser), so it runs **concurrently** on a background thread alongside the browser
 lanes. GCRS/Polygon and ADS run after those complete. This is the maximum safe
 parallelism; the pipeline never opens two Edge sessions against the shared profile at
@@ -84,16 +106,20 @@ only at the end.
 - The automation Edge profile must be closed before a run (the page tells you if it
   is open).
 
-## Local history retention (7 days)
+## Local history retention (fresh-run wipe)
 
-At the start of every run, `run_daily.prune_history` deletes local task history older
-than 7 days from `tools/captures/`:
-- old run folders under `captures/runs/` (detected by the `YYYYMMDD_HHMMSS` name stamp),
-- old per-source capture artifacts (screenshots, blob downloads, cached polygons).
+At the start of every fresh Start (Phase A), `run_daily.wipe_old_runs` deletes **all**
+prior task history from `tools/captures/`, not just old items:
+- every prior run folder under `captures/runs/` (except the run that is starting now),
+- every per-source capture artifact (screenshots, blob downloads, cached polygons)
+  under `captures/<source>/`.
 
-Anything modified/dated within the last 7 days is kept; older items are removed
-automatically. It never touches source code, the template, tests, or anything outside
-`captures/`. Retention window: `HISTORY_RETENTION_DAYS` in `run_daily.py`.
+It preserves this run's own directory and `scc_enum_map.json` (the SCC State
+enum ground-truth overlay), and it also prunes old published Desktop exports
+(`OOJ_Process_Filled_*.xlsx` from a previous day, keeping today's). It never touches
+source code, the template, tests, or any other Desktop file. The older
+`run_daily.prune_history` function (a 7-day retention window) still exists in the
+source but is no longer called in the live path — `wipe_old_runs` replaced it.
 
 ## Polygon location data
 

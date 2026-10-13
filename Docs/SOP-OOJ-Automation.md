@@ -47,8 +47,11 @@ to handle failures.
 3. **No AI/LLM** in the run path — the logic is deterministic and auditable.
 4. **ADS upload** sends addresses to a plaintext endpoint; it requires the explicit
    per-run **Approve ADS upload** checkbox.
-5. **Every run is logged** to a file under `tools/captures/`; artifacts auto-prune after
-   7 days.
+5. **Every run is logged** to a file under `tools/captures/`; every fresh Start wipes
+   all prior run data there first (not a time-based prune).
+6. **SCC is a manual step.** SCC's website blocks automated browsing, so the run
+   pauses after the SIM-T ticket pull and waits for the operator to upload SCC's
+   exported CSV before continuing.
 
 ---
 
@@ -64,10 +67,12 @@ preflight.
 | **Midway** | `mwinit -o` produces the session cookie the API lanes need (refresh daily) |
 | **mcscli** | `C:\Program Files\Common Files\AmazonMidwayClientSuite\bin\mcscli.exe` (SIW/GCRS) |
 | **builder-mcp** | `C:\Users\kabideba\AppData\Local\Toolbox\bin\builder-mcp.exe` (SIM-T pull) |
-| **Automation Edge profile** | Signed in to **SCC** (`logistics.amazon.in`) and the **PNAMA** + **DSR** QuickSight dashboards |
+| **Automation Edge profile** | Signed in to the **PNAMA** + **DSR** QuickSight dashboards |
+| **Operator's own browser** | Signed in to **SCC** (`logistics.amazon.in`) — used manually to search TIDs and export the CSV; SCC's automated browser lane was retired |
 
-> **Before a heavy run:** confirm the automation Edge profile is signed in to SCC, PNAMA,
-> and DSR. One sign-in usually covers both QuickSight dashboards.
+> **Before a heavy run:** confirm the automation Edge profile is signed in to PNAMA and
+> DSR (one sign-in usually covers both QuickSight dashboards), and that you can sign in
+> to SCC in your own browser for the manual export step.
 
 ---
 
@@ -88,12 +93,15 @@ flowchart TD
     S3b -- Yes --> S3c["Optionally tick Allow partial download"]
     S3b -- No --> S4
     S3c --> S4["4. Click Start run"]
-    S4 --> S5["5. Watch the 8 source cards + live log"]
-    S5 --> S6{"Run finished and Download unlocked?"}
+    S4 --> S5["5. SIM-T pull runs, then PAUSES"]
+    S5 --> S5b["6. Search SIM-T TIDs in SCC - export CSV by hand"]
+    S5b --> S5c["7. Upload the SCC CSV in the SCC card"]
+    S5c --> S5d["8. Run auto-resumes - watch the remaining source cards + live log"]
+    S5d --> S6{"Run finished and Download unlocked?"}
     S6 -- No, a source errored --> F["Go to Troubleshooting - Section 9"]
-    S6 -- Yes --> S7["6. Click Download"]
-    S7 --> S8["7. File also saved to Desktop - validate counts"]
-    S8 --> S9["8. Action tickets from the workbook"]
+    S6 -- Yes --> S7["9. Click Download"]
+    S7 --> S8["10. File also saved to Desktop - validate counts"]
+    S8 --> S9["11. Action tickets from the workbook"]
 ```
 
 **Detailed steps:**
@@ -109,20 +117,26 @@ flowchart TD
    workbook). Optionally tick **Allow partial download if a source fails** for a resilient
    run on a heavy day; leave it **off** for a strict full run.
 4. **Start the run.** Click **Start run**.
-5. **Monitor progress (step 3).** Eight source cards (SIM-T, EagleEye, SCC, PNAMA, DSR,
+5. **Monitor progress (step 3).** Eight source cards (SIM-T, SCC, EagleEye, PNAMA, DSR,
    GCRS, Polygon, ADS) show running/done/error with a **% bar** and counts. Below: the live
    table and the **Live log** with **Copy log**. Each source exposes a **Download CSV** link
    once it has data. **Stop run** aborts if needed.
-6. **Retrieve the result (step 4).** When the run finishes, verification runs automatically
+6. **Upload SCC's export (the pause).** Once the SIM-T pull finishes, the run **pauses** —
+   SCC's automated browser lane was retired because the site now blocks automated
+   browsing. The SCC card shows an "awaiting upload" badge: search the SIM-T TIDs in SCC
+   yourself, export the CSV, and upload it there. A valid upload automatically resumes
+   the run from SCC onward.
+7. **Retrieve the result (step 4).** When the run finishes, verification runs automatically
    (read-back + polygon). **Download** unlocks only when the workbook is valid. The file is
    also copied to the **Desktop** as `OOJ_Process_Filled_<stamp>.xlsx`
    (or `..._PARTIAL_<stamp>.xlsx`).
 
 ### 6.3 Expected timing
 
-A full run of ~1,400–1,500 TIDs takes roughly **15–25 minutes**, dominated by the browser
-lanes (SCC/PNAMA/DSR — DSR's dashboard is the slowest to load, up to ~3 minutes) and GCRS.
-EagleEye and fill/verify are fast.
+A full run of ~1,400–1,500 TIDs takes roughly **15–25 minutes** of automated time
+(PNAMA/DSR — DSR's dashboard is the slowest to load, up to ~3 minutes — and GCRS),
+plus however long the operator takes to search SCC and upload its export during the
+pause. EagleEye and fill/verify are fast.
 
 ---
 
@@ -132,7 +146,8 @@ EagleEye and fill/verify are fast.
 
 ```mermaid
 flowchart LR
-    T["SIM-T Tickets"] --> SCC["SCC"]
+    T["SIM-T Tickets"] --> PAUSE["Pause - manual SCC upload"]
+    PAUSE --> SCC["SCC - loaded from upload"]
     SCC --> EE["EagleEye - background, overlaps"]
     SCC --> PN["PNAMA"]
     PN --> DSR["DSR"]
@@ -145,13 +160,15 @@ flowchart LR
     RM --> DL["Download"]
 ```
 
-- **SCC runs first** — its resolved TIDs feed GCRS/Polygon/ADS.
+- **SCC is a manual CSV upload, not an automated browser lane.** SCC's site now
+  blocks automated browsing, so `tools/scc_client.py` was retired. The run pauses
+  after the SIM-T pull; the operator searches the TIDs in SCC themselves, exports the
+  CSV, and uploads it through the web page, which auto-resumes the run. SCC's rows
+  still feed GCRS/Polygon/ADS the same way the old automated lane's output did.
 - **EagleEye** is a pure API and runs on a **background thread overlapping** the serial
   browser lanes (PNAMA/DSR).
-- Browser lanes (SCC/PNAMA/DSR) share **one** Edge profile, so they run **serially** by
+- Browser lanes (PNAMA/DSR) share **one** Edge profile, so they run **serially** by
   design. Do not attempt to parallelize them.
-- **SCC** pastes up to **5,000 TIDs per search**; ≤1,000 uses the Export-to-CSV button,
-  >1,000 triggers SCC's automatic file download.
 - **PNAMA/DSR** paste the **entire** TID list into one QuickSight control (no chunking).
 
 ### 7.2 The remark decision (column P)
@@ -207,10 +224,9 @@ If any check fails, see Troubleshooting.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| "SCC not authenticated" / login page | Edge profile not signed in to `logistics.amazon.in` | Sign in once in that profile, re-run |
-| SCC bulk search not returning | Server-side SCC issue | Wait for SCC fix; or re-run with **Allow partial** |
-| "Export to CSV never appears" for a chunk | Transient UI/load | Re-run; clicks already scroll-into-view + JS-click fallback |
-| "N TID(s) could not be queried after retries" | Chunk failed all retries | TIDs saved to `scc_failed_tids_<stamp>.txt`; re-run |
+| SCC upload rejected: "missing required column(s)" | Wrong file, or not SCC's native export | Re-export fresh from SCC and upload again |
+| "Upload accepted but the run could not resume" | Phase B failed to start | Check the live log; re-run from the start if needed |
+| No upload control visible on the SCC card | Run hasn't reached the pause yet, or already passed it | Check the live log for "Phase A done"; wait or re-run |
 | PNAMA/DSR "login page — authenticate" | QuickSight not signed in | Sign in to both dashboards once in the profile, re-run |
 | DSR looks stuck a few minutes | DSR dashboard is heavy (~3 min load) | Watch the live log; it has a 20-min timeout |
 | ADS "host may be down" / no window | ADS Streamlit host intermittently down | Fails fast with a message; re-run when host is back |
@@ -229,7 +245,7 @@ Full detail: `Docs/troubleshooting.md`. Known gotchas per source: `Docs/edge-cas
 
 | Situation | Action |
 |---|---|
-| A source tool is down team-wide (e.g. SCC bulk search) | Use **Allow partial**; note it; re-run when the owning team restores service |
+| A source tool is down team-wide (e.g. PNAMA/DSR QuickSight) | Use **Allow partial**; note it; re-run when the owning team restores service |
 | Repeated auth failures after `mwinit -o` + profile sign-in | Capture the log (**Copy log**) and raise to the maintainer (KABIDEBA) |
 | Output fails verification repeatedly | Capture the log + the finish-banner reason; raise to the maintainer |
 | A rule/scope change from leadership (e.g. HYT2/BOMC special cases) | Route to the maintainer to update the rule config and docs |
@@ -262,6 +278,7 @@ timeline
     2026-09-28 to 29 : SCC failed-vs-not-found split : SCC 5000/search : GCRS transport-aware batch
     2026-09-30 : Startup sanitizer prevents stale data : Restart button
     2026-10-03 : Audit + 9 safe fixes : 59 tests green
+    2026-10-12 : SCC automated lane retired - manual CSV upload with pause/resume : fresh-run wipe replaces 7-day prune
 ```
 
 ### 11.3 Quality posture

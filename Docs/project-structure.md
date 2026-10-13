@@ -2,6 +2,12 @@
 
 A map of where everything lives, so the project is easy to navigate and run.
 
+> **Cloning this repo?** It needs Python 3.13 (`py -3.13`); missing packages are
+> installed on first server start by `tools/auto_setup.py`. Override the machine-specific
+> Edge profile path in `tools/ooj_paths.py` with the `OOJ_EDGE_PROFILE` env var rather
+> than editing code. `tools/captures/` and secrets are gitignored, so a fresh clone has
+> no real run data. The README has the full first-run checklist.
+
 ```
 Kiro OOJ Automation/
 ├── README.md                  Overview + quick start + documentation map
@@ -28,7 +34,6 @@ Kiro OOJ Automation/
 ├── tools/                     All pipeline code (one module per source/stage)
 │   ├── run_daily.py             ORCHESTRATOR — runs the whole pipeline in order
 │   ├── tickets_pull.py          SIM-T tickets → Tech_Data (via builder-mcp)
-│   ├── scc_client.py            SCC package data (browser; produces the genuine TID set)
 │   ├── eagleeye_client.py       EagleEye package leg detail (MCP API)
 │   ├── pnama_export.py          PNAMA missort (QuickSight export)
 │   ├── dsr_export.py            DSR Waterfall Zone (QuickSight export)
@@ -42,7 +47,7 @@ Kiro OOJ Automation/
 │   ├── apply_remarks.py         Rewrite Working Sheet Remark (column P)
 │   ├── remark_rules.py          The Remark decision logic
 │   ├── edge_preflight.py        Edge automation-profile checks (read-only)
-│   ├── browser_blob_capture.py  In-page CSV blob capture helper (SCC/QuickSight)
+│   ├── browser_blob_capture.py  In-page CSV blob capture helper (PNAMA/DSR QuickSight)
 │   │
 │   ├── web/                    The local one-click web runner
 │   │   ├── server.py              Stdlib HTTP server (127.0.0.1)
@@ -51,11 +56,11 @@ Kiro OOJ Automation/
 │   │   ├── app.js                 Progress cards (numbered steps), live log, download
 │   │   └── style.css              Styling
 │   │
-│   └── captures/              RUNTIME OUTPUT ONLY (auto-pruned after 7 days)
+│   └── captures/              RUNTIME OUTPUT ONLY (wiped at the start of every fresh run)
 │       ├── runs/                One dated folder per pipeline run (the real output)
 │       ├── tickets/ scc/ eagle/ pnama/ dsr/ polygons/ polygon_local/ ads/
 │       │                        Per-source artifacts: CSVs, screenshots, downloads
-│       └── _archive/           Old one-off dev/debug scratch (safe to delete; auto-pruned)
+│       └── _archive/           Old one-off dev/debug scratch (safe to delete; wiped too)
 │
 ├── tests/                     Offline test suite (py -3.13 -m pytest tests -q)
 │   ├── test_polygon_workflow.py
@@ -73,12 +78,16 @@ Kiro OOJ Automation/
   `run_controller.py`). Restart the server after editing.
 - **Docs** → `Docs/`, and add a row to the map in `README.md`.
 - **Anything under `tools/captures/`** is disposable runtime output. Never store source
-  code or docs there; it is auto-pruned after 7 days.
+  code or docs there; it is wiped at the start of every fresh run (not time-based).
 
 ## The run, in order
 
-SIM-T tickets → SCC → EagleEye → PNAMA → DSR → GCRS → Polygon → ADS → fill template →
-Excel recalc → verify (read-back) → apply Remark rules → download.
+SIM-T tickets → **pause for a manual SCC CSV upload** → SCC → EagleEye → PNAMA → DSR →
+GCRS → Polygon → ADS → fill template → Excel recalc → verify (read-back) → apply Remark
+rules → download.
 
-SCC produces the genuine/correct TID set that GCRS, Polygon, and ADS then use. Per-stage
-detail is in `Docs/pipeline-reference.md`.
+The run pulls SIM-T tickets, then stops (Phase A) so the operator can search those TIDs
+in SCC by hand, export the CSV, and upload it into the SCC progress card. A valid upload
+auto-resumes the run (Phase B) from SCC onward. SCC's rows produce the genuine/correct
+TID set that GCRS, Polygon, and ADS then use. Per-stage detail is in
+`Docs/pipeline-reference.md`.

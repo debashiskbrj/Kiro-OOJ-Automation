@@ -55,7 +55,7 @@ flowchart TD
 | builder-mcp | authenticated MCP subprocess | SIM-T | read-only ticket query |
 | Midway cookie jar | `~\.midway\cookie` from `mwinit -o` | EagleEye MCP | independent from SIW transport selection |
 | mcscli | `mcscli curl` | SIW only after a real `/gpsn` probe | token-valid alone is insufficient; final live probe returned HTTP 302 and correctly selected Edge |
-| Playwright + edge_profile | persistent Edge with AEA/Midway/Sentry | SCC, PNAMA, DSR, and one-way SIW fallback | browser lanes are serialized; SIW page is owned by one worker thread |
+| Playwright + edge_profile | persistent Edge with AEA/Midway/Sentry | PNAMA, DSR, and one-way SIW fallback | browser lanes are serialized; SIW page is owned by one worker thread. (SCC's automated browser lane was retired 2026-10-12 — SCC is now a manual CSV upload and no longer uses this profile.) |
 | Playwright, clean Edge | non-profile Edge | ADS Streamlit | AEA profile aborts raw-IP navigation; plaintext HTTP safety restriction |
 | Former AgentSpaces | historical source of tested rules | none at runtime | no local workflow falls back to or depends on AgentSpace |
 
@@ -68,9 +68,9 @@ flowchart LR
     PROBE -->|"fail once"| EDGE["Persistent Edge owner thread"] --> SESSION
     SESSION --> GRBI["sequential /grbi guards"]
     SESSION --> ROUTES["/gs + /gr polygons"]
-    PROFILE["Persistent Edge, serialized"] --> SCC["SCC"]
-    PROFILE --> PN["PNAMA"]
+    PROFILE["Persistent Edge, serialized"] --> PN["PNAMA"]
     PROFILE --> DSR["DSR Zone"]
+    UPLOAD["Manual SCC CSV upload"] --> SCC["SCC"]
     CLEAN["Clean Edge"] --> ADS["ADS Streamlit"]
     GRBI --> LOCAL["Local verified polygon/report outputs"]
     ROUTES --> LOCAL
@@ -132,7 +132,13 @@ Midway cookie jar auth). Flow: `initialize` → `tools/call`.
   `package_type: REVERSE`; map that value to `Invalid - Already RTOed`.
 - Client: `tools\test_eagleeye_mcp.py` (cookie-jar loader + JSON-RPC + `search()`).
 
-### 3.3 SCC (WORKING — browser lane)
+### 3.3 SCC (original design notes — automated browser lane RETIRED 2026-10-12)
+
+> These are the original design notes for the automated SCC browser lane. That lane was
+> **retired** (SCC's site now blocks automation; `tools/scc_client.py` and
+> `tools/capture_scc.py`-style automation were removed). SCC is now a **manual CSV
+> upload** loaded by `run_daily.load_scc_csv`. The capture/API details below are kept as
+> history — they no longer describe a live code path.
 
 UI: `https://logistics.amazon.in/station/dashboard/search` → app iframe
 `https://ui.package-summary-inzaz.last-mile.amazon.dev/...` (textarea lives in the

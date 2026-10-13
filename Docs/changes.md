@@ -5,6 +5,22 @@ code added/changed. Details belong in the other docs; this is the timeline.
 
 ---
 
+- **2026-10-12** — SCC AUTOMATION RETIRED → MANUAL CSV UPLOAD. SCC's site now blocks
+  automated browsing, so the automated SCC browser lane was removed: `tools/scc_client.py`
+  and `tests/test_scc_retry.py` were **deleted**. The run is now **two-phase with a pause**:
+  Phase A (`run_daily.py --stop-after-tickets`) does preflight + the SIM-T ticket pull then
+  exits; the web page's SCC card shows an "awaiting upload" control. The operator searches
+  the TIDs in SCC by hand, exports the CSV, and uploads it (`POST /scc/upload`, validated
+  against `SCC_REQUIRED_COLUMNS`); a valid upload auto-resumes Phase B
+  (`run_daily.py --resume-dir ... --scc-csv ...`) which runs SCC→ADS unchanged via
+  `load_scc_csv()`. Also: data retention changed from the 7-day `prune_history` window to a
+  **fresh-run wipe** (`wipe_old_runs`) that clears **all** prior run folders and per-source
+  capture artifacts at the start of every Start — preserving this run's data,
+  `scc_enum_map.json`, and today's Desktop exports — and prunes old `OOJ_Process_Filled_*.xlsx`
+  Desktop exports from a previous day; `prune_history` still exists but is no longer called.
+  Docs updated across the set to match; README rewritten; repo cleaned (`.agents` gitignored)
+  and backed up to GitHub. Suite: 75 passed, 0 failed.
+
 - **2026-10-05** — DEEP DIVE (existing pipeline, read-only-behavior pass): reviewed
   `tools/*.py` against `ooj-audit-findings.md`/`rollback-plan.md` for safe fixes only.
   Applied one fix: `tools/edge_preflight.py` now imports `EDGE_PROFILE` from

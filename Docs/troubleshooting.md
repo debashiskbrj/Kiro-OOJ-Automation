@@ -7,31 +7,25 @@ browser steps also save screenshots under `tools/captures/<source>/`.
 
 ## SCC
 
-**"SCC not authenticated" / stuck on a login page**
-The automation Edge profile isn't signed in to `logistics.amazon.in`. Sign in there
-once in that profile, then re-run.
+SCC's automated browser lane was **retired** (`tools/scc_client.py` and its test were
+deleted; the SCC site now blocks automated browsing). SCC is a **manual CSV upload**:
+the run pauses after the SIM-T ticket pull, and the SCC progress card shows an
+"awaiting upload" file picker.
 
-**SCC bulk search not returning / team says bulk search is down**
-This is server-side on SCC's end, not the automation. Wait for the team's fix. Our
-lane is read-only and low volume; it doesn't cause a team-wide outage. If you need the
-file meanwhile, re-run with **Allow partial download** ticked (SCC sheet blank).
+**Upload rejected: "missing required column(s): ..."**
+The uploaded file isn't SCC's native export, or it's missing one of the expected
+columns (Tracking ID, State, Destination, Source, Ship Option). Re-export fresh from
+SCC and upload that file.
 
-**Export to CSV never appears for a chunk**
-A screenshot is saved as `tools/captures/scc/scc_chunk*_noexport_*.png` and the log
-names the chunk. Usually a transient UI/load issue; re-run. The Search/Export clicks
-already scroll-into-view and fall back to a JS click, so "element outside viewport" is
-handled.
+**"Upload accepted but the run could not resume"**
+The CSV passed validation but Phase B (`run_daily.py --resume-dir ... --scc-csv ...`)
+failed to start — check the live log for the reason (e.g. the run directory from
+Phase A is missing or already finished). Re-run from the start if needed.
 
-**Log says "N TID(s) could not be queried after retries"**
-One or more chunks failed every refresh retry, so those TIDs were never actually
-searched (distinct from TIDs SCC simply has no row for). They are written to
-`tools/captures/scc/scc_failed_tids_<stamp>.txt`. Re-run the pipeline, or fill just
-those TIDs with `scc_client.py --resume-existing <previous scc.csv>`. A chunk that
-returns zero rows is now re-verified once with a refresh before being accepted, so a
-transient empty export no longer silently drops real data.
-
-*(Note: the SCC batch API path was abandoned — it returns HTTP 400/403 for our request
-shape. SCC uses the browser Search → Export flow.)*
+**I don't see an upload control on the SCC card**
+The run hasn't reached the pause yet, or it already passed it. The card only shows the
+upload control while `scc_phase` is `awaiting_scc_upload`/`scc_uploaded`; check the live
+log for "Phase A done" to confirm the run is actually paused there.
 
 ---
 
@@ -116,5 +110,6 @@ line to see which stage and what it's doing. Use **Stop run** to abort, fix the 
 and start again.
 
 **History piling up**
-It doesn't — `tools/captures/` is auto-pruned to the last 7 days at the start of every
-run.
+It doesn't — `tools/captures/` is wiped at the start of every fresh run (all prior run
+folders and per-source artifacts, not just old ones), and old Desktop export workbooks
+from a previous day are pruned too.

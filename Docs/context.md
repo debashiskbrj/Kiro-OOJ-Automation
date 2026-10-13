@@ -14,7 +14,9 @@ Automate the daily SWA India **Out-of-Jurisdiction (OOJ)** ticket process end to
 pull tickets from SIM-T → extract TIDs → enrich every TID from Amazon internal tools
 (SCC, EagleEye, GCRS/SIW, ADS, PNAMA/DSR dashboards) → apply the remark logic →
 produce the final report + NOC list + per-ticket comments, replacing the manual
-Excel-template workflow.
+Excel-template workflow. (SCC is now a **manual CSV upload** — its automated browser
+lane was retired because the site blocks automation; the run pauses after the SIM-T
+pull for the operator to upload SCC's export, then auto-resumes.)
 
 ## 2. Who / where
 
@@ -81,7 +83,7 @@ Invalid → resolve with `TID: <tid> | <remark>` comments.
 |---|---|---|---|---|
 | 1 | SIM-T | Tech_Data / Exported TT_Data | builder-mcp TicketingReadActions | WORKING |
 | 2 | EagleEye | Eagle_EYE data (RTO check) | EagleEye MCP over Midway cookie jar | WORKING (`package_type=REVERSE` live-verified 2026-09-18) |
-| 3 | SCC | SCC_(A,D,E,L) | dual browser path: >1,000 automatic default-column download; missing/≤1,000 Search Result → Export to CSV | WORKING — 1,495/1,496 live rows, 0 extras/duplicates (2026-09-18) |
+| 3 | SCC | SCC_(A,D,E,L) | manual CSV upload (automated browser lane retired 2026-10-12 — site blocks automation; operator exports from SCC and uploads via the web page, `load_scc_csv`) | WORKING — manual upload loaded into the same handoff shape |
 | 4 | GCRS / SIW | GCRS_Data → ADS format | real mcscli probe, then one-way authenticated-Edge fallback | WORKING LOCALLY — live auto-fallback resolved 1/1 on 2026-09-18 |
 | 5 | ADS pincode prediction | ADS Predicted Data | Playwright drives the Streamlit UI (clean Edge, no auth): upload XLSX → "ADS with PP Trigger" → "Download data as CSV" | WORKING (verified 2026-09-17) |
 | 6 | OBLT (EVENT_414) | OBLT Data | — | OUT OF SCOPE (user, 2026-09-17) |

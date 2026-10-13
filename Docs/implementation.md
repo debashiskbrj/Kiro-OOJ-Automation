@@ -9,7 +9,7 @@ Status date: 2026-09-18. `context.md` defines project scope;
 |---|---|---|
 | SIM-T pull and Tech_Data explosion | `tools\tickets_pull.py` | live one-row query 1/154 on 2026-09-18; parser offline-tested |
 | EagleEye RTO lookup | `tools\test_eagleeye_mcp.py` | live package returned `REVERSE` on 2026-09-18 |
-| SCC package data | `tools\scc_client.py` | live 1,495/1,496 via 999-row bulk auto-download + 496-row small CSV recovery; 0 extras/duplicates |
+| SCC package data | manual CSV upload (`run_daily.load_scc_csv`) | automated lane retired 2026-10-12 — SCC site blocks automation; operator exports from SCC and uploads via the web page. *(Historical: the retired `scc_client.py` lane proved live 1,495/1,496 via 999-row bulk auto-download + 496-row small CSV recovery; 0 extras/duplicates.)* |
 | SIW address/GPS | `tools\siw_client.py` + `gcrs_mcscli.py` | current snapshot resolved 1,495/1,496 through Edge fallback |
 | Local polygon checking | `tools\tid_polygon_checker.py` + `polygon_check.py` | current snapshot 1,560/1,560 verified: 1,006 Inside, 334 Outside, 220 explicit errors |
 | PNAMA missort | `tools\pnama_export.py` | current snapshot 1,440 unique matches, 56 no-match, 0 extras |
@@ -84,7 +84,8 @@ Full rules and commands: `Docs\polygon-checker.md`.
 ## 5. Remaining next work
 
 1. Add a known live DOC TID and a portal-confirmed boundary-edge fixture when available.
-2. Recheck SCC, PNAMA, and DSR serially because all use the same persistent Edge profile.
+2. Recheck PNAMA and DSR serially because they share the same persistent Edge profile.
+   (SCC no longer uses the Edge profile — it is a manual CSV upload.)
 3. Confirm static-reference ownership and refresh cadence.
 4. Implement final NOC and grouped comment-line outputs after source reconciliation.
 5. Never post comments or resolve tickets without explicit approval for that run.

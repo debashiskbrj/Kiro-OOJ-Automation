@@ -162,9 +162,13 @@ flowchart LR
     T --> SCC --> EE --> PN --> DSR --> GC --> PG --> ADS --> FL --> RC --> RB --> RM --> DL
 ```
 
-**Execution model:** SCC runs **first** (its resolved TIDs feed GCRS/Polygon/ADS); EagleEye
-is a pure API that runs on a **background thread overlapping** the serial browser lanes
-(PNAMA/DSR). The browser lanes share one Edge profile and stay serial by design.
+**Execution model:** the run is split into **two phases with a manual pause**. Phase A
+pulls the SIM-T tickets, then stops. **SCC is now a manual CSV upload** (SCC's site
+blocks automated browsing, so the automated lane was retired): the operator searches
+the TIDs in SCC themselves, exports the CSV, and uploads it via the web page, which
+auto-resumes the run as Phase B. SCC's rows still feed GCRS/Polygon/ADS. In Phase B,
+EagleEye is a pure API that runs on a **background thread overlapping** the serial
+browser lanes (PNAMA/DSR), which share one Edge profile and stay serial by design.
 
 ### 5.3 Data sources
 
@@ -172,7 +176,7 @@ is a pure API that runs on a **background thread overlapping** the serial browse
 |---|---|---|---|---|
 | 1 | **SIM-T** | Tickets → TIDs (Tech_Data, row order) | builder-mcp | No |
 | 2 | **EagleEye** | RTO status (`REVERSE`) | MCP API over Midway cookie | No |
-| 3 | **SCC** | State, Destination, Source station, Ship option | Browser Search → Export CSV | Yes |
+| 3 | **SCC** | State, Destination, Source station, Ship option | Manual CSV upload (automated browser lane retired — site blocks automation) | No (operator exports in their own browser) |
 | 4 | **PNAMA** | Missort / earlier-delivered match | QuickSight UI export | Yes |
 | 5 | **DSR** | Zone per TID | QuickSight UI export | Yes |
 | 6 | **GCRS / SIW** | Geocoded address, lat/lon, pincode | mcscli → Edge fallback | Fallback only |
@@ -234,7 +238,7 @@ Full detail: `Docs/remark-rules.md`.
 | NFR5 | **Count-verified output** | Every lane cross-checks identity/extra/duplicate counts |
 | NFR6 | **Performance** | ~15–25 min for ~1,500 TIDs |
 | NFR7 | **Safe parallelism only** | Shared-Edge lanes stay serial; `/grbi` sequential; EagleEye + polygon fan-out are the only proven-safe concurrency |
-| NFR8 | **Auditability** | Every run logs to a file; 7-day artifact retention |
+| NFR8 | **Auditability** | Every run logs to a file; a fresh-run wipe clears all prior run data at each Start (keeping this run's data, the SCC enum overlay, and today's exports) |
 | NFR9 | **Testability** | Core logic unit-tested offline (59 tests passing) |
 
 ### 6.3 Safety and compliance requirements
@@ -291,6 +295,7 @@ timeline
     2026-09-28 to 29 : SCC reliability (failed-vs-not-found) : SCC 5000/search : GCRS transport-aware batch
     2026-09-30 : Startup sanitizer + restart button : project-structure doc
     2026-10-03 : Audit + 9 safe fixes : 59 tests green : PRD + SOP for leadership
+    2026-10-12 : SCC automated lane retired (site blocks automation) : SCC now a manual CSV upload with a two-phase pause/resume : fresh-run wipe replaces the 7-day prune
 ```
 
 ### 8.3 Quality trend
@@ -325,8 +330,10 @@ timeline
 - **Cadence:** aligns to the SOP's two daily query runs (10:30 and 17:30 IST).
 - **Support:** `Docs/troubleshooting.md` lists every known failure and its fix; failing
   browser steps save screenshots under `tools/captures/`.
-- **Retention:** run artifacts auto-pruned after 7 days; the SCC enum ground-truth file is
-  protected from pruning.
+- **Retention:** every fresh Start wipes all prior run folders and per-source capture
+  artifacts (not a time-based prune), and prunes old published Desktop exports from a
+  previous day; this run's own data, the SCC enum ground-truth file, and today's exports
+  are preserved.
 
 ---
 

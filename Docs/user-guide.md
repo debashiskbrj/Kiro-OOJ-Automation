@@ -18,12 +18,21 @@ You need these on the machine (they're already set up on kabideba's laptop):
   (for SIM-T ticket pull).
 - **The automation Edge profile** at
   `C:\Users\kabideba\Desktop\My Files\My Automation\TT_Automation\edge_profile`,
-  signed in to:
-  - SCC (`logistics.amazon.in`)
-  - the PNAMA and DSR QuickSight dashboards
+  signed in to the PNAMA and DSR QuickSight dashboards. (SCC is no longer part of this
+  profile's job — see below.)
+- **Your own browser, signed in to SCC** (`logistics.amazon.in`) — SCC's automated
+  browser lane was retired because the site now blocks automated browsing, so you
+  search and export SCC's CSV by hand in whatever browser you normally use.
 
-If a browser lane fails with a login/authentication message, it means that site isn't
-signed in to the automation Edge profile — sign in there once and re-run.
+If a PNAMA/DSR lane fails with a login/authentication message, it means that site
+isn't signed in to the automation Edge profile — sign in there once and re-run.
+
+> **Cloning onto another machine?** The Edge profile path above is kabideba's default.
+> Point it at your own profile with the `OOJ_EDGE_PROFILE` environment variable (read in
+> `tools/ooj_paths.py`) instead of editing code. Missing Python packages are installed
+> automatically on first server start by `tools/auto_setup.py`, and `tools/captures/`
+> plus any secrets are gitignored, so a fresh clone ships with no real data. See the
+> README for the full first-run checklist.
 
 ---
 
@@ -47,7 +56,7 @@ signed in to the automation Edge profile — sign in there once and re-run.
      Leave it off for a strict full run.
    - Click **Start run**.
 
-4. **Watch progress (step 3).** Eight source cards (SIM-T Tickets, EagleEye, SCC,
+4. **Watch progress (step 3).** Eight source cards (SIM-T Tickets, SCC, EagleEye,
    PNAMA, DSR, GCRS, Polygon, ADS) show running/done/error with a **% bar** and live
    counts. Below them: the full enriched table as it fills, and the **Live log** with a
    **Copy log** button (use it to share the log if something fails).
@@ -55,7 +64,17 @@ signed in to the automation Edge profile — sign in there once and re-run.
      individual source's output mid-run.
    - **Stop run** aborts the current run (and its browser) if you need to.
 
-5. **Get the result (step 4).** When the run finishes, the page runs verification
+5. **Upload SCC's export (the pause).** Once the SIM-T ticket pull finishes, the run
+   **pauses** — SCC's website now blocks automated browsing, so SCC is a manual step:
+   - The SCC card shows an **"awaiting upload"** badge with a file picker.
+   - Take the SIM-T TIDs, search them in SCC yourself in a regular browser, and export
+     SCC's native result CSV.
+   - Choose that CSV file in the SCC card and click **Upload SCC CSV**.
+   - A valid upload (right columns: Tracking ID, State, Destination, Source, Ship
+     Option) is accepted and the run **automatically resumes** from SCC onward — no
+     extra click needed. A rejected upload shows the reason; fix the file and try again.
+
+6. **Get the result (step 4).** When the run finishes, the page runs verification
    (read-back + polygon check) automatically. The **Download** button unlocks only when
    the workbook is valid. The file is also copied to your **Desktop** as
    `OOJ_Process_Filled_<stamp>.xlsx` (or `..._PARTIAL_<stamp>.xlsx` for a partial run).
@@ -73,16 +92,17 @@ signed in to the automation Edge profile — sign in there once and re-run.
 
 ## Rough timing
 
-A full run of ~1,400–1,500 TIDs takes roughly 15–25 minutes, dominated by the browser
-lanes (SCC/PNAMA/DSR each a few minutes; DSR's dashboard is the slowest to load) and
-GCRS. EagleEye and the fill/verify steps are fast.
+A full run of ~1,400–1,500 TIDs takes roughly 15–25 minutes of automated time
+(PNAMA/DSR each a few minutes; DSR's dashboard is the slowest to load) and GCRS, plus
+however long you take to search SCC and export/upload its CSV during the pause.
+EagleEye and the fill/verify steps are fast.
 
 ---
 
 ## If something goes wrong
 
 - Use **Copy log** and check `Docs/troubleshooting.md` — it lists the known failures
-  (SCC bulk search down, PNAMA/SCC not signed in, ADS host down, Edge profile open,
+  (SCC upload rejected, PNAMA/DSR not signed in, ADS host down, Edge profile open,
   blocked port) and how to fix each.
 - Screenshots of failing browser steps are saved under `tools/captures/<source>/`.
 - If you just need the file despite one source being down, re-run with **Allow partial

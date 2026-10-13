@@ -11,7 +11,7 @@ live re-verification pending · CONDITIONAL = automatic fallback required · OUT
 |---|---|---|---|---|---|
 | 1 | SIM-T tickets | builder-mcp TicketingReadActions | WORKING — one-row live query returned 1/154 on 2026-09-18 | full daily pagination when needed | Kiro |
 | 2 | EagleEye | MCP + Midway cookie jar | WORKING — live TID returned `package_type=REVERSE` on 2026-09-18 | retain known RTO fixture for regression | Kiro |
-| 3 | SCC | Playwright + persistent Edge profile | WORKING — bulk auto-download 999 + small CSV recovery 496 = 1,495/1,496, 0 extras/duplicates | retain dual-path logic | Kiro |
+| 3 | SCC | manual CSV upload (automated browser lane retired — site blocks automation) | WORKING — operator exports from SCC and uploads via the web page; `run_daily.load_scc_csv` ingests it into the same handoff shape | keep the uploaded-CSV column contract (`SCC_REQUIRED_COLUMNS`) in sync with SCC's export | Kiro |
 | 4 | GCRS / SIW address lookup | `siw_client.FailoverSiwSession`: real mcscli `/gpsn` probe → one-way Edge fallback | WORKING LOCALLY — final rerun rejected mcscli HTTP 302 and Edge `/grbi` resolved 1/1 on 2026-09-18 | monitor mcscli probe; Edge remains automatic fallback | Kiro |
 | 5 | Local SIW polygon checker | shared SIW session + `/gs` + `/gr` + local geometry engine | WORKING — fresh BRSG polygons, 1/1 Inside, 0 errors, XLSX `VERIFY OK` on 2026-09-18 | expand live regression set when DOC/boundary fixtures are available | Kiro |
 | 6 | ADS pincode prediction | clean Edge → Streamlit UI | WORKING — approved current run returned 1,464/1,495; 31 no-prediction | plaintext HTTP remains explicit per-run approval only | Kiro / model owner |

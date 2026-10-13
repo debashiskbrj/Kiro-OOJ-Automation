@@ -15,7 +15,6 @@ tools/
   run_daily.py             orchestrator: main() runs the pipeline stage by stage
   tickets_pull.py          SIM-T ticket pull (builder-mcp)
   eagleeye_client.py       EagleEye MCP API client (chunks of 50)
-  scc_client.py            SCC browser Search -> Export CSV
   pnama_export.py          PNAMA QuickSight dashboard export (shared QS driver)
   dsr_export.py            DSR QuickSight export (imports pnama_export as the driver)
   gcrs_mcscli.py           GCRS via SIW grbi (sequential; 500 mcscli / 200 Edge)
@@ -27,14 +26,20 @@ tools/
   remark_rules.py          column-P Remark decision logic (pure functions)
   apply_remarks.py         apply remark rules to a recalculated workbook
   edge_preflight.py        safe Edge automation-profile checks
-  browser_blob_capture.py  capture QuickSight/SCC blob downloads in-page
+  browser_blob_capture.py  capture QuickSight blob downloads in-page (PNAMA/DSR)
   recalc_excel.ps1         open Excel to recalculate formulas
   web/
     server.py              stdlib http.server: page + JSON endpoints
     run_controller.py      spawns/monitors run_daily, parses status, gates download
     index.html app.js style.css   the one-click page
-  captures/                run artifacts + per-source screenshots/CSVs (7-day retention)
+  captures/                run artifacts + per-source screenshots/CSVs (wiped every fresh run)
 ```
+
+SCC's automated browser lane (`scc_client.py`) was retired — the SCC site now blocks
+automated browsing. SCC is handled directly in `run_daily.py`: `--stop-after-tickets`
+pauses the run after the ticket pull, the operator uploads SCC's manually-exported CSV
+through the web page, and `load_scc_csv()` loads it (validated against
+`SCC_REQUIRED_COLUMNS`) before `--resume-dir` continues the run from SCC onward.
 
 ---
 
@@ -73,11 +78,12 @@ reads this — it never re-implements pipeline logic.
 ## Conventions
 
 - **Read-only** against Amazon systems. No writes, no git push, no ticket actions.
-- Browser lanes (SCC/PNAMA/DSR/ADS) run as subprocess "workers" via
+- Browser lanes (PNAMA/DSR/ADS) run as subprocess "workers" via
   `run_daily.run_browser_worker`, which streams their output live and enforces a
-  timeout with a killable process tree.
-- SCC/PNAMA/DSR share **one** Edge profile, so they must run serially (Chromium allows
-  one process per profile). EagleEye/GCRS are API-style and don't touch the profile.
+  timeout with a killable process tree. SCC is no longer one of these — it is a manual
+  CSV upload loaded by `load_scc_csv()`.
+- PNAMA/DSR share **one** Edge profile, so they must run serially (Chromium allows one
+  process per profile). EagleEye/GCRS are API-style and don't touch the profile.
 - Untrusted CSV values are written as literals (never as Excel formulas) — see
   `fill_template.set_literal_cell` and `csv_safe`.
 

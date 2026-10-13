@@ -68,6 +68,16 @@ Format: `#ID — [source] symptom → cause → rule`.
 
 ## SCC
 
+> **RETIRED 2026-10-12 — SCC automation is gone.** The SCC site now blocks automated
+> browsing, so the automated browser lane was removed: `tools/scc_client.py` and
+> `tests/test_scc_retry.py` were **deleted and no longer exist**. SCC is now a **manual
+> CSV upload** — the operator searches the SIM-T TIDs in SCC by hand, exports the native
+> CSV, and uploads it through the web page, which loads it via `run_daily.load_scc_csv`
+> into the same handoff shape. The entries below (#C1–#C9) are kept as a **historical
+> log** of the retired lane; they describe code that is no longer present. Constants
+> like `SCC_UI_CHUNK` / `AUTO_DOWNLOAD_THRESHOLD` and files like
+> `scc_failed_tids_<stamp>.txt` no longer exist in the live path.
+
 - **#C1 — the search UI lives in an iframe** (`ui.package-summary-inzaz.last-mile
   .amazon.dev`). `page.locator("textarea")` on the top page finds nothing; iterate
   frames and use the one containing a textarea.
