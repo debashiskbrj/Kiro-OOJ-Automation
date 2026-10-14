@@ -193,10 +193,15 @@ def write_dsr_zone(ws, rows: list[dict]) -> int:
 
 
 def write_polygon_rows(ws, rows: list[dict]) -> int:
-    """Write local polygon audit rows to the template's legacy-named source sheet."""
+    """Write local polygon audit rows to the template's legacy-named source sheet.
+
+    Columns: Tracking ID | Station | GCRS Status | CX Address Check. The 4th column is
+    additive (new 2026-10); the Working Sheet's existing col-33 VLOOKUP uses A:C only and
+    is unaffected.
+    """
     clear_rows(ws, 2)
     if ws.max_row < 1 or ws["A1"].value is None:
-        ws.append(["Tracking ID", "Station", "GCRS Status"])
+        ws.append(["Tracking ID", "Station", "GCRS Status", "CX Address Check"])
     for row in rows:
         tid = row.get("Tracking ID") or row.get("tracking_id") or row.get("TID")
         append_literal_row(
@@ -205,6 +210,7 @@ def write_polygon_rows(ws, rows: list[dict]) -> int:
                 "" if tid is None else str(tid),
                 row.get("Station") or row.get("station"),
                 row.get("GCRS Status") or row.get("status"),
+                row.get("CX Address Check") or "",
             ],
         )
     return len(rows)
@@ -369,8 +375,15 @@ def fill(template: Path, out_path: Path, tech_rows, scc_rows, eagle_rows, missor
     )
     if polygon_rows:
         working_sheet = wb[SHEET_WORK]
+        # Column 33 (AG) = GCRS Agent Space (polygon status), written as a literal.
+        # Column 34 (AH) = CX Address Check (new additive column, 2026-10). AH is empty in
+        # the template (33-column layout), so writing it here shifts/clobbers nothing. We
+        # also stamp the AH header in row 1 since the template has no header there.
+        if working_sheet.cell(row=1, column=34).value in (None, ""):
+            set_literal_cell(working_sheet.cell(row=1, column=34), "CX Address Check")
         for row_number, polygon_row in enumerate(polygon_rows, start=2):
             set_literal_cell(working_sheet.cell(row=row_number, column=33), polygon_row.get("GCRS Status") or "")
+            set_literal_cell(working_sheet.cell(row=row_number, column=34), polygon_row.get("CX Address Check") or "")
     wb.save(out_path)
     stats["out"] = str(out_path)
     return stats

@@ -30,7 +30,7 @@ import gcrs_mcscli
 import polygon_check
 from siw_client import FailoverSiwSession, TransportError
 
-RESULT_HEADERS = ["Tracking ID", "Station", "GCRS Status"]
+RESULT_HEADERS = ["Tracking ID", "Station", "GCRS Status", "CX Address Check"]
 ERROR_PREFIX = "Error — "
 CAPTURE_DIR = Path(__file__).parent / "captures" / "polygon_local"
 CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
@@ -53,12 +53,14 @@ class BoundaryInput:
 class BoundaryResult:
     source: BoundaryInput
     status: str
+    cx_address_check: str = ""
 
     def as_row(self) -> dict[str, str]:
         return {
             "Tracking ID": self.source.tracking_id,
             "Station": self.source.station,
             "GCRS Status": self.status,
+            "CX Address Check": self.cx_address_check,
         }
 
 
@@ -159,9 +161,12 @@ def run_boundary_check(
         session=session,
     ) if eligible else []
     polygon_status = {item.sequence: row["GCRS Status"] for item, row in zip(eligible, polygon_rows)}
+    # Parallel map of the new additive CX Address Check verdict (blank for non-eligible).
+    polygon_cx = {item.sequence: row.get("CX Address Check", "") for item, row in zip(eligible, polygon_rows)}
 
     results: list[BoundaryResult] = []
     for item in inputs:
+        cx = ""
         if item.parse_error:
             status = f"{ERROR_PREFIX}Invalid input line: {item.parse_error}"
         elif not item.canonical_station:
@@ -174,7 +179,8 @@ def run_boundary_check(
             status = f"{ERROR_PREFIX}SIW unresolved after degraded/poison guards"
         else:
             status = polygon_status.get(item.sequence, f"{ERROR_PREFIX}Polygon result missing")
-        results.append(BoundaryResult(source=item, status=status))
+            cx = polygon_cx.get(item.sequence, "")
+        results.append(BoundaryResult(source=item, status=status, cx_address_check=cx))
 
     inside = sum(result.status == polygon_check.INSIDE_TEXT for result in results)
     outside = sum(result.status == polygon_check.OUTSIDE_TEXT for result in results)
@@ -247,8 +253,9 @@ def write_results_xlsx(
             _set_text(results_sheet.cell(row=row_number, column=column), row[header])
         results_sheet.cell(row=row_number, column=3).fill = _status_fill(result.status)
     results_sheet.freeze_panes = "A2"
-    results_sheet.auto_filter.ref = f"A1:C{max(1, results_sheet.max_row)}"
-    for index, width in enumerate((24, 16, 72), start=1):
+    last_col = get_column_letter(len(RESULT_HEADERS))
+    results_sheet.auto_filter.ref = f"A1:{last_col}{max(1, results_sheet.max_row)}"
+    for index, width in enumerate((24, 16, 72, 60), start=1):
         results_sheet.column_dimensions[get_column_letter(index)].width = width
 
     summary_sheet = workbook.create_sheet("Summary")
@@ -301,7 +308,7 @@ def verify_results_xlsx(path: Path, expected: BoundaryRun) -> dict[str, object]:
             if any(value is not None for value in row)
         ]
         expected_rows = [
-            (result.source.tracking_id, result.source.station, result.status)
+            (result.source.tracking_id, result.source.station, result.status, result.cx_address_check)
             for result in expected.results
         ]
         if len(actual_rows) != len(expected.inputs):
