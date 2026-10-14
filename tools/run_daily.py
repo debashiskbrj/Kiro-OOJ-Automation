@@ -37,10 +37,12 @@ HERE = Path(__file__).parent
 CAPTURES = HERE / "captures"
 RUNS = CAPTURES / "runs"
 DESKTOP = Path.home() / "Desktop"
-# The final filled workbook is published to the Desktop as OOJ_Process_Filled_<stamp>.xlsx
-# (or OOJ_Process_Filled_PARTIAL_<stamp>.xlsx). Older such exports are pruned at the start
-# of each fresh run so only today's output remains (see wipe_old_runs).
-DESKTOP_EXPORT_PREFIX = "OOJ_Process_Filled_"
+# The final filled workbook is published to the Desktop as
+# "Templete_OOJ Process_<Month>_KABIDEBA1_<stamp>.xlsx" (full) or with a PARTIAL_ tag
+# before the stamp (partial). Older such exports are pruned at the start of each fresh run
+# so only today's output remains (see wipe_old_runs). This prefix MUST stay in sync with
+# tools/web/run_controller.py's DESKTOP_EXPORT_PREFIX so the wipe matches what is published.
+DESKTOP_EXPORT_PREFIX = "Templete_OOJ Process_"
 # Local task history (run folders and per-source capture artifacts) is kept this many
 # days; anything older is deleted automatically at the start of each run.
 HISTORY_RETENTION_DAYS = 7
@@ -133,7 +135,7 @@ def wipe_old_runs(current_dir: Path, log=print) -> dict:
     under captures/runs and every per-source capture artifact under captures/<source>/,
     regardless of age — a hard wipe, not a retention window.
 
-    It also prunes OLD published exports from the Desktop (OOJ_Process_Filled_*.xlsx),
+    It also prunes OLD published exports from the Desktop ("Templete_OOJ Process_*.xlsx"),
     keeping only files produced today, so stale output workbooks do not pile up.
 
     Deliberately preserved:
@@ -143,7 +145,7 @@ def wipe_old_runs(current_dir: Path, log=print) -> dict:
       * Desktop exports produced TODAY — only exports from a previous day are removed, so
         a second run on the same day never deletes an export you made earlier today.
     Never touches source code, the template, tests, or any other Desktop file (only the
-    automation's own OOJ_Process_Filled_* workbooks). Safe if a file is locked (never raises).
+    automation's own "Templete_OOJ Process_*" workbooks). Safe if a file is locked (never raises).
     """
     if not CAPTURES.exists():
         return {"removed_dirs": 0, "removed_files": 0}
@@ -188,7 +190,7 @@ def wipe_old_runs(current_dir: Path, log=print) -> dict:
                 except OSError:
                     pass
 
-    # 3. Old published export workbooks on the Desktop (OOJ_Process_Filled_*.xlsx).
+    # 3. Old published export workbooks on the Desktop ("Templete_OOJ Process_*.xlsx").
     # Keep today's; remove any from a previous day so stale outputs do not accumulate.
     # Only the automation's own export files are matched — no other Desktop file is touched.
     removed_exports = 0

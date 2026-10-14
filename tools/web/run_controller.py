@@ -674,18 +674,36 @@ def _working_workbook(run_dir: Path, stamp: str | None) -> Path | None:
     return matches[-1] if matches else None
 
 
+# Published Desktop workbook name: "Templete_OOJ Process_<Month>_KABIDEBA1_<stamp>.xlsx"
+# (PARTIAL runs get a PARTIAL_ tag before the stamp). <Month> auto-follows the current
+# month so no manual edit is needed each month. The stamp keeps runs from overwriting one
+# another and lets the daily wipe prune older exports (see run_daily.wipe_old_runs, which
+# matches the DESKTOP_EXPORT_PREFIX below).
+DESKTOP_EXPORT_PREFIX = "Templete_OOJ Process_"
+DESKTOP_EXPORT_SUFFIX = "_KABIDEBA1"
+
+
+def _desktop_export_name(partial: bool, stamp: str) -> str:
+    month = datetime.now().strftime("%B")  # full month name, e.g. "October"
+    partial_tag = "PARTIAL_" if partial else ""
+    return f"{DESKTOP_EXPORT_PREFIX}{month}{DESKTOP_EXPORT_SUFFIX}_{partial_tag}{stamp}.xlsx"
+
+
 def _existing_desktop_copy(stamp: str | None) -> str | None:
     if not stamp:
         return None
-    target = DESKTOP / f"OOJ_Process_Filled_{stamp}.xlsx"
-    return str(target) if target.exists() else None
+    # The month in the name is set at publish time, so find the file by its unique stamp
+    # (both full and PARTIAL variants) rather than reconstructing the month.
+    matches = sorted(DESKTOP.glob(f"{DESKTOP_EXPORT_PREFIX}*{DESKTOP_EXPORT_SUFFIX}_*{stamp}.xlsx"))
+    return str(matches[-1]) if matches else None
 
 
 def publish_to_desktop(run_dir: Path, stamp: str | None) -> Path:
     """Copy the produced workbook to the Desktop. Refuses if no downloadable workbook.
 
-    Full runs are named OOJ_Process_Filled_<stamp>.xlsx; PARTIAL runs (some sources left
-    blank) are named OOJ_Process_Filled_PARTIAL_<stamp>.xlsx so the file itself is labelled.
+    The published file is named "Templete_OOJ Process_<Month>_KABIDEBA1_<stamp>.xlsx"
+    (<Month> auto-follows the current month). PARTIAL runs (some sources left blank) get a
+    PARTIAL_ tag before the stamp so the file itself is labelled.
     """
     summary = _read_summary(run_dir)
     if summary is None:
@@ -696,8 +714,7 @@ def publish_to_desktop(run_dir: Path, stamp: str | None) -> Path:
     if source is None:
         raise RuntimeError("filled workbook not found in run directory")
     name_stamp = stamp or datetime.now().strftime("%Y%m%d_%H%M%S")
-    partial_tag = "PARTIAL_" if blank_sources(summary) else ""
-    target = DESKTOP / f"OOJ_Process_Filled_{partial_tag}{name_stamp}.xlsx"
+    target = DESKTOP / _desktop_export_name(bool(blank_sources(summary)), name_stamp)
     shutil.copy2(source, target)
     return target
 

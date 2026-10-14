@@ -1,4 +1,11 @@
-"""Every branch of the Working Sheet Remark (P) decision tree."""
+"""Working Sheet Remark (P) post-recalc rules.
+
+The template's P2 formula now computes the final Remark for most rows. After recalc the
+automation only finishes two cases:
+  1. J (State) == "#N/A"                 -> "Invalid- Incorrect TID / TID Not Found"
+  2. P contains "LM to Reattempt"        -> decide from AF, then AG, else "Valid"
+Every other P value the formula produced is kept verbatim.
+"""
 import sys
 from pathlib import Path
 
@@ -12,103 +19,71 @@ AF_B = "Invalid - LM to Reattempt - Sent to correct Station"
 AF_REST = "Interchange Not Possible / Other Group"
 AG_INSIDE = "Invalid - It is Inside Jurisdiction as per GCRS Tool"
 
-
-# --- step 1: protected values are never changed -----------------------------
-def test_protected_values_are_preserved_regardless_of_other_columns():
-    for protected in rr.PROTECTED_REMARKS:
-        # Even with an AF verdict / station code / AG inside, protected P wins.
-        assert rr.decide_remark(protected, AF_A, "HYBK", AG_INSIDE) == protected
-        assert rr.decide_remark(protected, AF_REST, "0", "Outside") == protected
-
-
-def test_protected_check_trims_whitespace():
-    assert rr.is_protected("  Invalid - Already RTOed  ") is True
-    assert rr.is_protected("Not Valid - OOR") is False
+# The two "LM to Reattempt" trigger values the P2 formula emits for the automation.
+P_TRIGGER_PINCODE_CORRECT = "Invalid - Address Pin-Code Correct - LM to Reattempt"
+P_TRIGGER_PINCODE_MISMATCH = (
+    "Address-Pin-code mismatch found – LM to reattempt as the right pin-code is served "
+    "by same station Station code match"
+)
 
 
-# --- J (State) driven rules -------------------------------------------------
+# --- rule 1: J (State) == "#N/A" -> incorrect TID ---------------------------
 def test_state_na_yields_incorrect_tid():
+    # #N/A state always means TID-not-found, regardless of P / AF / AG.
     assert rr.decide_remark("anything", AF_REST, "0", "Outside", j_value="#N/A") == \
         "Invalid- Incorrect TID / TID Not Found"
-
-
-def test_state_in_transit_customer_yields_oor():
-    assert rr.decide_remark("anything", AF_REST, "0", "Outside",
-                            j_value="In Transit (DS -> Customer)") == "Invalid - OOR"
-
-
-def test_state_rules_do_not_override_protected():
-    # A protected P still wins over the State rules.
-    assert rr.decide_remark("Invalid - Already RTOed", AF_REST, "0", "Outside",
-                            j_value="#N/A") == "Invalid - Already RTOed"
-
-
-def test_state_rules_win_over_af_ad_ag():
-    # State #N/A beats an AF verdict / station code.
-    assert rr.decide_remark("x", AF_A, "HYBK", AG_INSIDE, j_value="#N/A") == \
+    assert rr.decide_remark(P_TRIGGER_PINCODE_CORRECT, AF_A, "HYBK", AG_INSIDE, j_value="#N/A") == \
         "Invalid- Incorrect TID / TID Not Found"
 
 
-def test_new_state_outcomes_are_protected():
-    assert "Invalid- Incorrect TID / TID Not Found" in rr.PROTECTED_REMARKS
-    assert "Invalid - OOR" in rr.PROTECTED_REMARKS
-    assert len(rr.PROTECTED_REMARKS) == 6
-    # Once written, they are never overwritten.
-    assert rr.decide_remark("Invalid - OOR", AF_A, "HYBK", AG_INSIDE) == "Invalid - OOR"
+def test_state_na_trims_whitespace():
+    assert rr.decide_remark("x", AF_REST, "0", "Outside", j_value="  #N/A  ") == \
+        "Invalid- Incorrect TID / TID Not Found"
 
 
-def test_other_states_fall_through_to_existing_logic():
-    # A normal state (e.g. Delivered) does not trigger the J rules.
-    assert rr.decide_remark("x", AF_REST, "HYBK", "Outside", j_value="Delivered") == "Valid"
+# --- rule 2: "LM to Reattempt" trigger -> AF, then AG, else Valid -----------
+def test_lm_trigger_af_named_verdict_wins():
+    assert rr.decide_remark(P_TRIGGER_PINCODE_CORRECT, AF_A, "0", "Outside") == AF_A
+    assert rr.decide_remark(P_TRIGGER_PINCODE_MISMATCH, AF_B, "HYBK", AG_INSIDE) == AF_B
 
 
-# --- step 2: named AF verdicts copy into P ----------------------------------
-def test_af_named_verdict_copied_when_not_protected():
-    assert rr.decide_remark("anything", AF_A, "0", "Outside") == AF_A
-    assert rr.decide_remark("Valid", AF_B, "HYBK", AG_INSIDE) == AF_B
+def test_lm_trigger_defers_to_ag_inside_when_af_not_a_verdict():
+    assert rr.decide_remark(P_TRIGGER_PINCODE_CORRECT, AF_REST, "0", AG_INSIDE) == AG_INSIDE
+    assert rr.decide_remark(P_TRIGGER_PINCODE_MISMATCH, "#N/A", "0", AG_INSIDE) == AG_INSIDE
 
 
-def test_af_named_verdict_does_not_override_protected():
-    assert rr.decide_remark("Invalid - Already RTOed", AF_A, "0", "x") == "Invalid - Already RTOed"
+def test_lm_trigger_falls_back_to_valid():
+    assert rr.decide_remark(P_TRIGGER_PINCODE_CORRECT, AF_REST, "0", "Outside") == "Valid"
+    assert rr.decide_remark(P_TRIGGER_PINCODE_MISMATCH, AF_REST, "0", "Error — x") == "Valid"
 
 
-# --- step 3a: 4-char station code in AD -> Valid ----------------------------
-def test_station_code_in_ad_yields_valid():
-    assert rr.decide_remark("old remark", AF_REST, "HYBK", AG_INSIDE) == "Valid"
-    assert rr.decide_remark("old remark", "#N/A", "STVT", "Outside") == "Valid"
+def test_lm_trigger_matched_by_substring():
+    # Any P value carrying the "LM to Reattempt" marker triggers the AF/AG recompute.
+    assert rr.decide_remark("something LM to Reattempt something", AF_A, "0", "Outside") == AF_A
 
 
-def test_station_code_recogniser():
-    assert rr.is_station_code("HYBK") is True
-    assert rr.is_station_code("stvt") is True
-    assert rr.is_station_code("1234") is True   # 4 alphanumeric digits count as a code
-    assert rr.is_station_code("0") is False
-    assert rr.is_station_code("#N/A") is False
-    assert rr.is_station_code("") is False
-    assert rr.is_station_code("ABC") is False   # 3 chars
-    assert rr.is_station_code("ABCDE") is False  # 5 chars
-    assert rr.is_station_code(0) is False
+# --- rule 3: every other P value is kept verbatim ---------------------------
+def test_non_trigger_values_are_kept_verbatim():
+    for value in (
+        "Not Valid - Delivered",
+        "Not Valid - OOR",
+        "Not Valid - In transit DS-DS",
+        "Invalid - Already RTOed",
+        "Not Valid - Doesn't belong to SWA",
+        "Valid",
+    ):
+        # AF/AG/AD are irrelevant for a non-trigger P; the formula's value stands.
+        assert rr.decide_remark(value, AF_A, "HYBK", AG_INSIDE, j_value="Delivered") == value
 
 
-# --- step 3b: AD not a code -> defer to AG ----------------------------------
-def test_ad_zero_defers_to_ag_inside():
-    assert rr.decide_remark("old", AF_REST, "0", AG_INSIDE) == AG_INSIDE
+def test_non_trigger_value_is_trimmed():
+    assert rr.decide_remark("  Valid  ", AF_REST, "0", "Outside", j_value="Delivered") == "Valid"
 
 
-def test_ad_na_defers_to_ag_inside():
-    assert rr.decide_remark("old", AF_REST, "#N/A", AG_INSIDE) == AG_INSIDE
-
-
-def test_ad_zero_ag_outside_yields_valid():
-    assert rr.decide_remark("old", AF_REST, "0", "Outside") == "Valid"
-
-
-def test_ad_zero_ag_error_yields_valid():
-    assert rr.decide_remark("old", AF_REST, "0", "Error — java.lang...") == "Valid"
-
-
-def test_ad_na_ag_blank_yields_valid():
-    assert rr.decide_remark("old", "#N/A", "#N/A", "") == "Valid"
+def test_na_state_beats_a_non_trigger_value():
+    # Rule 1 (J == #N/A) is checked before keeping P verbatim.
+    assert rr.decide_remark("Valid", AF_REST, "0", "Outside", j_value="#N/A") == \
+        "Invalid- Incorrect TID / TID Not Found"
 
 
 # --- worksheet application --------------------------------------------------
@@ -121,7 +96,6 @@ class _FakeWS:
     def __init__(self, rows):
         # rows: list of dict {P, AD, AF, AG, optional J}; row index starts at 2
         self.max_row = len(rows) + 1
-        # Cache one cell object per (row, column) so writes persist, like openpyxl.
         self._cells = {}
         for i, data in enumerate(rows):
             row = i + 2
@@ -135,31 +109,31 @@ class _FakeWS:
 
 def test_apply_to_worksheet_mixed():
     rows = [
-        {"P": "Invalid - Already RTOed", "AD": "HYBK", "AF": AF_A, "AG": AG_INSIDE},  # protected
-        {"P": "whatever", "AD": "0", "AF": AF_A, "AG": "Outside"},                    # AF named
-        {"P": "whatever", "AD": "HYBK", "AF": AF_REST, "AG": "Outside"},              # station -> Valid
-        {"P": "whatever", "AD": "0", "AF": AF_REST, "AG": AG_INSIDE},                 # AG inside
-        {"P": "whatever", "AD": "#N/A", "AF": AF_REST, "AG": "Error — x"},            # -> Valid
+        {"P": "Not Valid - Delivered", "AD": "HYBK", "AF": AF_A, "AG": AG_INSIDE},          # kept verbatim
+        {"P": P_TRIGGER_PINCODE_CORRECT, "AD": "0", "AF": AF_A, "AG": "Outside"},           # trigger -> AF
+        {"P": P_TRIGGER_PINCODE_MISMATCH, "AD": "0", "AF": AF_REST, "AG": AG_INSIDE},       # trigger -> AG
+        {"P": P_TRIGGER_PINCODE_CORRECT, "AD": "0", "AF": AF_REST, "AG": "Outside"},        # trigger -> Valid
+        {"P": "x", "AD": "0", "AF": AF_REST, "AG": "Outside", "J": "#N/A"},                 # #N/A state
     ]
     ws = _FakeWS(rows)
     summary = rr.apply_to_worksheet(ws)
     assert summary["rows"] == 5
-    assert summary["protected"] == 1
-    assert ws.cell(2, rr.COL_P).value == "Invalid - Already RTOed"
+    assert ws.cell(2, rr.COL_P).value == "Not Valid - Delivered"
     assert ws.cell(3, rr.COL_P).value == AF_A
-    assert ws.cell(4, rr.COL_P).value == "Valid"
-    assert ws.cell(5, rr.COL_P).value == AG_INSIDE
-    assert ws.cell(6, rr.COL_P).value == "Valid"
+    assert ws.cell(4, rr.COL_P).value == AG_INSIDE
+    assert ws.cell(5, rr.COL_P).value == "Valid"
+    assert ws.cell(6, rr.COL_P).value == "Invalid- Incorrect TID / TID Not Found"
+    # Row 2's formula value was kept verbatim (reported as "protected" for compat).
+    assert summary["protected"] == 1
 
 
-def test_apply_to_worksheet_state_rules():
+def test_apply_to_worksheet_keeps_formula_values():
     rows = [
-        {"P": "x", "AD": "0", "AF": AF_REST, "AG": "Outside", "J": "#N/A"},
-        {"P": "x", "AD": "HYBK", "AF": AF_A, "AG": AG_INSIDE, "J": "In Transit (DS -> Customer)"},
-        {"P": "x", "AD": "HYBK", "AF": AF_REST, "AG": "Outside", "J": "Delivered"},
+        {"P": "Not Valid - OOR", "AD": "0", "AF": AF_REST, "AG": "Outside", "J": "In Transit (DS -> Customer)"},
+        {"P": "Invalid - Already RTOed", "AD": "HYBK", "AF": AF_A, "AG": AG_INSIDE, "J": "Delivered"},
     ]
     ws = _FakeWS(rows)
     rr.apply_to_worksheet(ws)
-    assert ws.cell(2, rr.COL_P).value == "Invalid- Incorrect TID / TID Not Found"
-    assert ws.cell(3, rr.COL_P).value == "Invalid - OOR"
-    assert ws.cell(4, rr.COL_P).value == "Valid"
+    # Both are non-trigger formula outputs -> kept exactly as the formula produced them.
+    assert ws.cell(2, rr.COL_P).value == "Not Valid - OOR"
+    assert ws.cell(3, rr.COL_P).value == "Invalid - Already RTOed"

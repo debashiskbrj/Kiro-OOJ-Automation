@@ -164,6 +164,13 @@ def test_publish_copies_when_publishable(tmp_path, monkeypatch):
     assert target.exists()
     assert target.parent == desktop
     assert target.read_bytes() == b"real-workbook-bytes"
+    # Published name: "Templete_OOJ Process_<Month>_KABIDEBA1_<stamp>.xlsx" (auto month).
+    assert target.name.startswith("Templete_OOJ Process_")
+    assert target.name.endswith(f"_KABIDEBA1_{stamp}.xlsx")
+    # A full (non-partial) run must NOT carry the PARTIAL_ tag.
+    assert "PARTIAL_" not in target.name
+    # _existing_desktop_copy finds the published file by its unique stamp.
+    assert rc._existing_desktop_copy(stamp) == str(target)
 
 
 def test_read_summary_handles_missing(tmp_path):
