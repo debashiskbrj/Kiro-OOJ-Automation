@@ -743,8 +743,12 @@ def read_back(
     generated_p2 = getattr(formula_wb[ft.SHEET_WORK]["P2"].value, "text", "")
     template_p2 = getattr(template_wb[ft.SHEET_WORK]["P2"].value, "text", "")
     normalize_formula = lambda text: re.sub(r"\s+", "", text or "").replace("_xlfn.", "")
-    if normalize_formula(generated_p2) != normalize_formula(template_p2):
-        raise RuntimeError("Working Sheet P2 no longer matches the template remark formula")
+    # P now stays a VISIBLE FORMULA: fill_template wraps the template's P2 with the
+    # #N/A / LM-to-reattempt (AF->AG->Valid) finishing logic. So the generated P2 is no
+    # longer byte-identical to the template; instead it must CONTAIN the template formula
+    # verbatim (proving the authoritative lookup logic was preserved, not dropped).
+    if normalize_formula(template_p2) not in normalize_formula(generated_p2):
+        raise RuntimeError("Working Sheet P2 no longer contains the template remark formula")
     ws = wb[ft.SHEET_WORK]
     headers = [clean_header(cell.value) for cell in ws[1]]
     header_counts = Counter(headers)
@@ -1130,12 +1134,13 @@ def main():
         polygon_rows,
     )
     if xlsx:
-        read_ok = run.stage("read_back", read_back, run, xlsx, tech, polygon_rows) is not None
-        # Apply the operator's Remark (column P) rules as the final finishing step,
-        # AFTER read_back has verified the raw filled output (which still needs P as the
-        # template formula). This turns P into its final literal value for the download.
-        if read_ok:
-            run.stage("apply_remarks", finalize_remarks, run, xlsx, tech)
+        run.stage("read_back", read_back, run, xlsx, tech, polygon_rows)
+        # NOTE: the Remark (column P) is NO LONGER flattened to a literal. P now carries a
+        # self-contained formula (built in fill_template.extend_working_sheet) that embeds
+        # the template's lookup logic plus the #N/A / LM-to-reattempt (AF->AG->Valid)
+        # finishing rules, so the operator can trace every remark in the formula bar and
+        # the recalc'd file still shows the correct final value. apply_remarks is retained
+        # only as a standalone CLI utility.
 
     run.write_progress()
     run.log(f"=== done. Workbook: {xlsx}")

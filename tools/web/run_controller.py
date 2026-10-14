@@ -606,7 +606,7 @@ def is_publishable(summary: dict, partial: bool) -> bool:
       * it was not started as a partial (ADS-skipped) run,
       * no ``publication_blocked`` marker is present,
       * every required lane succeeded,
-      * fill/recalc, read_back and apply_remarks all succeeded,
+      * fill/recalc and read_back both succeeded,
       * the polygon workbook verification reports OK.
     """
     if partial:
@@ -617,7 +617,9 @@ def is_publishable(summary: dict, partial: bool) -> bool:
     for lane in REQUIRED_LANES:
         if not (stages.get(lane) or {}).get("ok"):
             return False
-    for stage in ("fill_recalc", "read_back", "apply_remarks"):
+    # The Remark (column P) is now a self-contained formula computed by Excel during
+    # fill/recalc, so there is no separate apply_remarks stage to gate on anymore.
+    for stage in ("fill_recalc", "read_back"):
         if not (stages.get(stage) or {}).get("ok"):
             return False
     verification = (summary.get("polygon") or {}).get("verification")
@@ -629,14 +631,14 @@ def is_publishable(summary: dict, partial: bool) -> bool:
 def is_downloadable(summary: dict, partial: bool) -> bool:
     """True when a workbook exists and is safe to download — either a full publishable
     run, or a PARTIAL run where some sources were intentionally left blank but the
-    workbook-producing stages (fill/recalc, read_back, apply_remarks) still succeeded.
+    workbook-producing stages (fill/recalc, read_back) still succeeded.
     """
     if is_publishable(summary, partial):
         return True
     if summary.get("publication_blocked"):
         return False
     stages = summary.get("stages") or {}
-    for stage in ("fill_recalc", "read_back", "apply_remarks"):
+    for stage in ("fill_recalc", "read_back"):
         if not (stages.get(stage) or {}).get("ok"):
             return False
     # A partial workbook is downloadable even without full-run ADS approval, as long as
