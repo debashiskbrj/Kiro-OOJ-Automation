@@ -85,11 +85,14 @@ def _relaunch_server(port: int) -> None:
     _sanitize("restart")
     python = sys.executable
     # A tiny inline waiter: sleep so the old socket is freed, then exec the server.
+    # Relaunch WITHOUT --no-open so the restarted server opens the page in a fresh browser
+    # window (operator preference: a restart should pop a new browser, not rely on the
+    # existing tab reconnecting).
     waiter = (
         "import time,subprocess,sys;"
         "time.sleep(2);"
         f"subprocess.Popen([r'{python}', '-X', 'utf8', r'{HERE / 'server.py'}',"
-        f" '--port', '{port}', '--no-open'])"
+        f" '--port', '{port}'])"
     )
     creationflags = 0
     if os.name == "nt":
@@ -404,7 +407,9 @@ def main():
     _auto_setup()
     if not args.no_open:
         try:
-            webbrowser.open(url)
+            # new=1 opens a NEW browser window (not just a tab in the current one), so a
+            # fresh start or a restart gives the operator a clean window.
+            webbrowser.open(url, new=1)
         except OSError:
             pass
     try:
