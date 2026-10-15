@@ -49,6 +49,55 @@ ACTIVE_PORT = 8000
 SERVER = None
 
 
+def _open_browser(url: str) -> None:
+    """Open the page in a SEPARATE, standalone browser window containing only this tab.
+
+    Operator preference: a dedicated window for the runner, not a new tab inside the
+    operator's existing browsing window. We use the browser's "app mode" (--app=<url>),
+    which opens a chrome-less, single-page window isolated from the normal browser windows.
+    A unique --user-data-dir makes the app window its own instance so it never merges into
+    an already-open Edge/Chrome window. Falls back to webbrowser if neither is found.
+    """
+    import shutil
+    import tempfile
+
+    candidates = []
+    if os.name == "nt":
+        program_files = [os.environ.get("PROGRAMFILES", r"C:\Program Files"),
+                         os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
+                         os.environ.get("LOCALAPPDATA", "")]
+        edge = [os.path.join(p, r"Microsoft\Edge\Application\msedge.exe") for p in program_files if p]
+        chrome = [os.path.join(p, r"Google\Chrome\Application\chrome.exe") for p in program_files if p]
+        candidates = edge + chrome
+    # Also try PATH-resolved names (covers non-standard installs / other OSes).
+    for name in ("msedge", "chrome", "google-chrome", "chromium"):
+        found = shutil.which(name)
+        if found:
+            candidates.append(found)
+
+    app_profile = os.path.join(tempfile.gettempdir(), "ooj_web_app_profile")
+    # De-dup while preserving order; only keep full paths that exist (which()-resolved
+    # entries are already full, existing paths).
+    seen = set()
+    for exe in candidates:
+        if not exe or exe in seen or not os.path.exists(exe):
+            continue
+        seen.add(exe)
+        try:
+            subprocess.Popen(
+                [exe, f"--app={url}", f"--user-data-dir={app_profile}", "--new-window"],
+                close_fds=True,
+            )
+            return
+        except OSError:
+            continue
+    # Fallback: best-effort new window via the default browser.
+    try:
+        webbrowser.open(url, new=1)
+    except OSError:
+        pass
+
+
 def _sanitize(reason: str) -> None:
     """Remove output-corrupting scratch (browser downloads, partial/temp files) so a run
     can never pick up stale/partial data. Runs at server startup and on restart."""
@@ -406,12 +455,10 @@ def main():
     # (the /restart relauncher spawns a brand-new server.py whose own main() runs this).
     _auto_setup()
     if not args.no_open:
-        try:
-            # new=1 opens a NEW browser window (not just a tab in the current one), so a
-            # fresh start or a restart gives the operator a clean window.
-            webbrowser.open(url, new=1)
-        except OSError:
-            pass
+        # Open a SEPARATE standalone window (app mode) containing only this page, so a
+        # fresh start or a restart gives the operator a dedicated runner window rather than
+        # a tab in their existing browser.
+        _open_browser(url)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
