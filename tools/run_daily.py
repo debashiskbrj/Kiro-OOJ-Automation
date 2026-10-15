@@ -744,10 +744,13 @@ def read_back(
     template_p2 = getattr(template_wb[ft.SHEET_WORK]["P2"].value, "text", "")
     normalize_formula = lambda text: re.sub(r"\s+", "", text or "").replace("_xlfn.", "")
     # P now stays a VISIBLE FORMULA: fill_template wraps the template's P2 with the
-    # #N/A / LM-to-reattempt (AF->AG->Valid) finishing logic. So the generated P2 is no
-    # longer byte-identical to the template; instead it must CONTAIN the template formula
-    # verbatim (proving the authoritative lookup logic was preserved, not dropped).
-    if normalize_formula(template_p2) not in normalize_formula(generated_p2):
+    # #N/A / LM-to-reattempt (AF->AG->Valid) finishing logic. The template's own formula is
+    # embedded WITHOUT its leading "=" (as the SEARCH argument and the fallback), so the
+    # generated P2 must CONTAIN the template body sans leading "=" (proving the authoritative
+    # lookup logic was preserved, not dropped). Comparing the "="-stripped body avoids a
+    # false failure from that single leading character.
+    template_body = normalize_formula(template_p2).lstrip("=")
+    if template_body and template_body not in normalize_formula(generated_p2):
         raise RuntimeError("Working Sheet P2 no longer contains the template remark formula")
     ws = wb[ft.SHEET_WORK]
     headers = [clean_header(cell.value) for cell in ws[1]]

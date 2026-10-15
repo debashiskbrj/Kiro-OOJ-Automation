@@ -548,6 +548,35 @@ class TemplateIntegrationTests(unittest.TestCase):
                 sheet = workbook[fill_template.SHEET_WORK]
                 self.assertEqual(polygon_check.INSIDE_TEXT, sheet["AG2"].value)
                 self.assertEqual(polygon_check.OUTSIDE_TEXT, sheet["AG3"].value)
+
+                # Column P stays a VISIBLE combined formula (not a flattened literal) that
+                # embeds the template body plus the ISNA(J)/LM-to-reattempt (AF->AG->Valid)
+                # finishing logic, and translates down per row (P3 references row-3 cells).
+                p2 = sheet["P2"].value
+                p2_text = getattr(p2, "text", p2)
+                self.assertIsInstance(p2_text, str)
+                self.assertTrue(p2_text.startswith("="))
+                self.assertIn("ISNA(J2)", p2_text)
+                self.assertIn("Invalid- Incorrect TID / TID Not Found", p2_text)
+                self.assertIn("lm to reattempt", p2_text.lower())
+                self.assertIn("AF2", p2_text)
+                self.assertIn("AG2", p2_text)
+                p3_text = getattr(sheet["P3"].value, "text", sheet["P3"].value)
+                self.assertIn("ISNA(J3)", p3_text)   # translated to row 3
+
+                # read_back's containment contract: the template P2 body (sans leading "=")
+                # must appear inside the generated P2.
+                import re as _re
+                norm = lambda s: _re.sub(r"\s+", "", s or "").replace("_xlfn.", "")
+                tpl = openpyxl.load_workbook(fill_template.TEMPLATE, data_only=False)
+                try:
+                    tpl_p2 = getattr(tpl[fill_template.SHEET_WORK]["P2"].value, "text", "")
+                finally:
+                    tpl.close()
+                self.assertIn(norm(tpl_p2).lstrip("="), norm(p2_text))
+
+                # The new CX Address Check column header is stamped at AH1.
+                self.assertEqual("CX Address Check", sheet["AH1"].value)
             finally:
                 workbook.close()
 
