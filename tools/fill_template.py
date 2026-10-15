@@ -267,25 +267,32 @@ def extend_working_sheet(ws, n_rows: int, use_dsr_zone: bool = False) -> dict:
     # Column P stays a VISIBLE FORMULA in the output (so the operator can trace, in the
     # formula bar, exactly which lookups produced each remark). We wrap the template's own
     # P2 formula with the operator's finishing logic so the whole decision lives in the
-    # formula itself — no Python flattening of P:
-    #   * J == "#N/A"                         -> "Invalid- Incorrect TID / TID Not Found"
-    #   * the template formula returns an "LM to reattempt" trigger -> AF verdict, else the
-    #     AG inside-jurisdiction text, else "Valid"
-    #   * otherwise                           -> the template formula's own value
+    # formula itself — no Python flattening of P. Per-row decision order:
+    #   1. ISNA(J)                              -> "Invalid- Incorrect TID / TID Not Found"
+    #   2. inner result is "LM to reattempt"    -> AF verdict, else AG inside-jurisdiction,
+    #                                              else "Valid"   (the AF->AG->Valid block)
+    #   3. inner result is #N/A (any other case)-> SAME AF->AG->Valid block (final catch-all,
+    #                                              so no row is ever left as #N/A)
+    #   4. otherwise                            -> the template formula's own value
     # SEARCH() is case-insensitive, so it matches both "LM to Reattempt" and "LM to reattempt".
     _p_kind, _p_text = originals["P"]
     _inner = _p_text[1:] if _p_text.startswith("=") else _p_text  # drop leading "="
     _af_a = "Invalid - Correct Station-A.in Shipment delivered - LM to Reattempt and Deliver"
     _af_b = "Invalid - LM to Reattempt - Sent to correct Station"
     _ag_inside = "Invalid - It is Inside Jurisdiction as per GCRS Tool"
+    # Shared AF -> AG -> Valid resolution (used by both the LM-to-reattempt branch and the
+    # final #N/A catch-all).
+    _afag_resolve = (
+        f'IF(OR(AF2="{_af_a}",AF2="{_af_b}"),AF2,'
+        f'IF(AG2="{_ag_inside}",AG2,"Valid"))'
+    )
     # J (State) is itself a VLOOKUP that returns the #N/A ERROR (not the text "#N/A")
     # when the TID is not found, so detect it with ISNA(J2), not J2="#N/A".
     _combined_p = (
         '=IF(ISNA(J2),"Invalid- Incorrect TID / TID Not Found",'
-        f'IF(ISNUMBER(SEARCH("lm to reattempt",{_inner})),'
-        f'IF(OR(AF2="{_af_a}",AF2="{_af_b}"),AF2,'
-        f'IF(AG2="{_ag_inside}",AG2,"Valid")),'
-        f'{_inner}))'
+        f'IF(ISNUMBER(SEARCH("lm to reattempt",{_inner})),{_afag_resolve},'
+        f'IF(ISNA({_inner}),{_afag_resolve},'
+        f'{_inner})))'
     )
     # Preserve the template's cell kind (array vs plain) so Excel evaluates it the same way.
     originals["P"] = (_p_kind, _combined_p)
