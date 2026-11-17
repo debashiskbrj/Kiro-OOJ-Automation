@@ -39,13 +39,17 @@ RUNS = CAPTURES / "runs"
 DESKTOP = Path.home() / "Desktop"
 # The final filled workbook is published to the Desktop as
 # "Templete_OOJ Process_<Month>_KABIDEBA1_<stamp>.xlsx" (full) or with a PARTIAL_ tag
-# before the stamp (partial). Older such exports are pruned at the start of each fresh run
-# so only today's output remains (see wipe_old_runs). This prefix MUST stay in sync with
+# before the stamp (partial). Exports older than RUN_KEEP_DAYS are pruned at the start of
+# each fresh run (see wipe_old_runs). This prefix MUST stay in sync with
 # tools/web/run_controller.py's DESKTOP_EXPORT_PREFIX so the wipe matches what is published.
 DESKTOP_EXPORT_PREFIX = "Templete_OOJ Process_"
 # Local task history (run folders and per-source capture artifacts) is kept this many
 # days; anything older is deleted automatically at the start of each run.
 HISTORY_RETENTION_DAYS = 7
+# Operator rule (fresh Start): keep prior run folders and Desktop export workbooks for
+# this many days (anything older is deleted by wipe_old_runs). Per-source capture caches
+# are still wiped on every fresh Start so a run never reuses another run's data.
+RUN_KEEP_DAYS = 3
 FINAL_COLUMNS = [
     "IssueUrl", "CreateDate", "LastUpdatedDate", "TID", "Station Code(SCC)", "Zone", "State",
     "Destination", "CX Pincode", "ADS Predicted Pincode", "Probability", "Pincode Validation", "Remark",
@@ -127,23 +131,23 @@ def prune_history(retention_days: int = HISTORY_RETENTION_DAYS, log=print) -> di
     return {"removed_dirs": removed_dirs, "removed_files": removed_files}
 
 
-def wipe_old_runs(current_dir: Path, log=print) -> dict:
-    """Delete ALL prior run data at the start of a fresh run (operator rule).
+def wipe_old_runs(current_dir: Path, log=print, keep_days: int = RUN_KEEP_DAYS) -> dict:
+    """Clean up prior run data at the start of a fresh run (operator rule).
 
     Each automation run must work only on data it freshly fetched during that run, so
-    at the start of every fresh Start (Phase A) we remove every previous run folder
-    under captures/runs and every per-source capture artifact under captures/<source>/,
-    regardless of age — a hard wipe, not a retention window.
+    at the start of every fresh Start (Phase A) we remove every per-source capture
+    artifact under captures/<source>/, regardless of age.
 
-    It also prunes OLD published exports from the Desktop ("Templete_OOJ Process_*.xlsx"),
-    keeping only files produced today, so stale output workbooks do not pile up.
+    Prior run folders under captures/runs and published Desktop exports
+    ("Templete_OOJ Process_*.xlsx") are kept for ``keep_days`` days (operator rule:
+    3 days) and deleted once older. No run reads another run's folder, so keeping them
+    does not affect freshness.
 
     Deliberately preserved:
       * ``current_dir`` — the run directory this very run just created (its freshly
         pulled SIM-T data must survive the wipe).
       * ``scc_enum_map.json`` — the long-lived SCC State enum->text ground-truth overlay.
-      * Desktop exports produced TODAY — only exports from a previous day are removed, so
-        a second run on the same day never deletes an export you made earlier today.
+      * Run folders and Desktop exports from the last ``keep_days`` days.
     Never touches source code, the template, tests, or any other Desktop file (only the
     automation's own "Templete_OOJ Process_*" workbooks). Safe if a file is locked (never raises).
     """
@@ -155,8 +159,22 @@ def wipe_old_runs(current_dir: Path, log=print) -> dict:
         current_resolved = current_dir
     removed_dirs = 0
     removed_files = 0
+    cutoff_dt = datetime.now() - timedelta(days=keep_days)
 
-    # 1. Every prior run folder under captures/runs, except this run's own directory.
+    def _is_old(path: Path) -> bool:
+        """Older than the keep window: run-folder name stamp first, else mtime."""
+        match = re.match(r"(\d{8}_\d{6})", path.name)
+        if match:
+            try:
+                return datetime.strptime(match.group(1), "%Y%m%d_%H%M%S") < cutoff_dt
+            except ValueError:
+                pass
+        try:
+            return datetime.fromtimestamp(path.stat().st_mtime) < cutoff_dt
+        except OSError:
+            return False
+
+    # 1. Prior run folders under captures/runs older than keep_days (never this run's own).
     if RUNS.exists():
         for entry in RUNS.iterdir():
             if entry.name == "_latest.txt":
@@ -166,6 +184,8 @@ def wipe_old_runs(current_dir: Path, log=print) -> dict:
                     continue
             except OSError:
                 pass
+            if not _is_old(entry):
+                continue
             if entry.is_dir():
                 shutil.rmtree(entry, ignore_errors=True)
                 removed_dirs += 1
@@ -191,20 +211,19 @@ def wipe_old_runs(current_dir: Path, log=print) -> dict:
                     pass
 
     # 3. Old published export workbooks on the Desktop ("Templete_OOJ Process_*.xlsx").
-    # Keep today's; remove any from a previous day so stale outputs do not accumulate.
+    # Keep the last keep_days days; remove older ones so stale outputs do not accumulate.
     # Only the automation's own export files are matched — no other Desktop file is touched.
     removed_exports = 0
     try:
-        today = datetime.now().date()
         if DESKTOP.is_dir():
             for entry in DESKTOP.glob(f"{DESKTOP_EXPORT_PREFIX}*.xlsx"):
                 if not entry.is_file():
                     continue
                 try:
-                    produced = datetime.fromtimestamp(entry.stat().st_mtime).date()
+                    produced = datetime.fromtimestamp(entry.stat().st_mtime)
                 except OSError:
                     continue
-                if produced < today:
+                if produced < cutoff_dt:
                     try:
                         entry.unlink()
                         removed_exports += 1
@@ -216,7 +235,8 @@ def wipe_old_runs(current_dir: Path, log=print) -> dict:
 
     log(f"fresh-run wipe: removed {removed_dirs} prior run folders, {removed_files} "
         f"capture files, and {removed_exports} old Desktop export(s) "
-        f"(keeping this run's data, scc_enum_map.json, and today's exports)")
+        f"(keeping this run's data, scc_enum_map.json, and run folders/exports from the "
+        f"last {keep_days} days)")
     return {"removed_dirs": removed_dirs, "removed_files": removed_files,
             "removed_exports": removed_exports}
 
@@ -412,9 +432,10 @@ def pull_tickets(run: Run, max_pages: int | None):
     mcp = tp.open_mcp()
     try:
         tickets, total, pages = tp.fetch_all(mcp, max_pages)
+        approvals = tp.scan_approvals(mcp, tickets, run.log)
     finally:
         mcp.close()
-    rows = tp.explode(tickets)
+    rows = tp.explode(tickets, approvals)
     complete = len(tickets) == total
     run.log(f"tickets: {len(tickets)} / totalResults {total} (complete={complete}); rows={len(rows)}")
     if not complete and not max_pages:
@@ -698,7 +719,8 @@ def fill_and_recalc(
     )
     run.log(f"template filled: {json.dumps({k: v for k, v in stats.items() if k != 'working'}, default=str)}")
     res = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-                          str(HERE / "recalc_excel.ps1"), "-Path", str(out)], capture_output=True, text=True, timeout=1800)
+                          str(HERE / "recalc_excel.ps1"), "-Path", str(out)], capture_output=True, text=True, timeout=1800,
+                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))  # no console flash
     if "RECALC_OK" not in res.stdout:
         raise RuntimeError(f"Excel recalc failed: {res.stderr[:300]}")
     run.log("Excel recalculation done")
@@ -742,16 +764,13 @@ def read_back(
     template_wb = openpyxl.load_workbook(template, data_only=False)
     generated_p2 = getattr(formula_wb[ft.SHEET_WORK]["P2"].value, "text", "")
     template_p2 = getattr(template_wb[ft.SHEET_WORK]["P2"].value, "text", "")
-    normalize_formula = lambda text: re.sub(r"\s+", "", text or "").replace("_xlfn.", "")
-    # P now stays a VISIBLE FORMULA: fill_template wraps the template's P2 with the
-    # #N/A / LM-to-reattempt (AF->AG->Valid) finishing logic. The template's own formula is
-    # embedded WITHOUT its leading "=" (as the SEARCH argument and the fallback), so the
-    # generated P2 must CONTAIN the template body sans leading "=" (proving the authoritative
-    # lookup logic was preserved, not dropped). Comparing the "="-stripped body avoids a
-    # false failure from that single leading character.
-    template_body = normalize_formula(template_p2).lstrip("=")
-    if template_body and template_body not in normalize_formula(generated_p2):
-        raise RuntimeError("Working Sheet P2 no longer contains the template remark formula")
+    normalize_formula = lambda text: re.sub(r"\s+", "", text or "").replace("_xlfn.", "").lstrip("=")
+    # P stays a VISIBLE FORMULA: the template's P2 carries the operator's complete remark
+    # formula and fill_template translates it down unchanged, so for row 2 the generated
+    # P2 must EQUAL the template P2 (whitespace / "_xlfn." / leading "=" normalized).
+    template_body = normalize_formula(template_p2)
+    if not template_body or normalize_formula(generated_p2) != template_body:
+        raise RuntimeError("Working Sheet P2 does not match the template remark formula")
     ws = wb[ft.SHEET_WORK]
     headers = [clean_header(cell.value) for cell in ws[1]]
     header_counts = Counter(headers)
@@ -914,6 +933,11 @@ def main():
         help="if a source fails to fetch, leave its sheet blank and still produce the "
              "downloadable workbook (labelled PARTIAL) instead of blocking the run",
     )
+    ap.add_argument(
+        "--skip-browser-signin",
+        action="store_true",
+        help="do not open the Edge window at Start to check the PNAMA/DSR sign-in",
+    )
     args = ap.parse_args()
     skip = {value.strip().lower() for value in args.skip.split(",") if value.strip()}
     allowed_lanes = {"gcrs", "eagle", "scc", "pnama", "dsr", "ads", "polygon"}
@@ -960,9 +984,9 @@ def main():
             f"=== OOJ daily run {run.stamp} skip={sorted(skip)} "
             f"max_tids={args.max_tids} tids_file={args.tids_file}"
         )
-        # Operator rule: each run works only on freshly fetched data, so wipe ALL prior
-        # run folders and captures at the start of every fresh Start (keeping only this
-        # run's own directory and the scc_enum_map.json overlay). This runs in Phase A
+        # Operator rule: each run works only on freshly fetched data, so wipe ALL per-source
+        # captures at the start of every fresh Start, and delete run folders / Desktop
+        # exports older than RUN_KEEP_DAYS (3 days). This runs in Phase A
         # only; Phase B (--resume-dir) above never wipes — it resumes this same run dir.
         try:
             wipe_old_runs(run.dir, log=run.log)
@@ -977,6 +1001,16 @@ def main():
             require_builder_mcp=not bool(args.tids_file),
         ) is None:
             sys.exit(2)
+        # Browser sign-in for the QuickSight lanes (PNAMA + DSR) while the operator is at
+        # the laptop: opens the automation Edge window, waits for PIN + YubiKey only if a
+        # login page shows, then closes by itself. Never fatal — PNAMA/DSR keep their own
+        # login wait. The Edge profile is free here (preflight checked it).
+        if not args.skip_browser_signin and not {"pnama", "dsr"} <= skip:
+            try:
+                import browser_signin
+                browser_signin.ensure_signed_in(log=run.log)
+            except Exception as exc:
+                run.log(f"browser sign-in skipped: {type(exc).__name__}: {str(exc)[:120]}")
         if args.tids_file:
             tech = run.stage("tickets", tech_from_tid_file, run, args.tids_file)
         else:
@@ -1138,10 +1172,10 @@ def main():
     )
     if xlsx:
         run.stage("read_back", read_back, run, xlsx, tech, polygon_rows)
-        # NOTE: the Remark (column P) is NO LONGER flattened to a literal. P now carries a
-        # self-contained formula (built in fill_template.extend_working_sheet) that embeds
-        # the template's lookup logic plus the #N/A / LM-to-reattempt (AF->AG->Valid)
-        # finishing rules, so the operator can trace every remark in the formula bar and
+        # NOTE: the Remark (column P) is NO LONGER flattened to a literal. P carries the
+        # template's own P2 formula (the operator's complete remark formula, including the
+        # #N/A / LM-to-reattempt AF->AG->Valid rules), translated down unchanged by
+        # fill_template.extend_working_sheet, so the operator can trace every remark in the formula bar and
         # the recalc'd file still shows the correct final value. apply_remarks is retained
         # only as a standalone CLI utility.
 

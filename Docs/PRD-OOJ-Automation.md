@@ -40,8 +40,9 @@ recalculates it, **verifies the result**, and produces a ready-to-use workbook �
 
 It is **free** (Python standard library plus a few well-known open-source packages),
 **runs entirely on the operator's laptop**, uses **no AI/LLM in the run path**, and is
-**strictly read-only** against all Amazon systems (it never posts to, resolves, or modifies
-any ticket or source).
+**read-only in the pipeline** against all Amazon systems. Since 2026-11 the page also has two
+optional, operator-confirmed write features: bulk **Resolve ticket** (status Resolved +
+closure code Successful) and **Post comments**.
 
 ---
 
@@ -108,7 +109,7 @@ no judgment call that a documented rule cannot encode.
 
 | # | Non-goal | Rationale |
 |---|---|---|
-| N1 | **Writing to Amazon systems** (posting comments, resolving tickets) | Read-only by design; write actions stay behind a future explicit, gated approval |
+| N1 | **Automatic writing to Amazon systems** | The pipeline never writes; Resolve ticket and Post comments write only after an explicit operator confirmation |
 | N2 | **Any AI/LLM in the run path** | Deterministic rules only; reproducible and auditable |
 | N3 | **OBLT (EVENT_414) lookups** | Removed from scope by the operator (2026-09-17) |
 | N4 | **A hosted/multi-user service** | Local-per-operator using each operator's own Midway/SSO sessions |
@@ -231,19 +232,21 @@ Full detail: `Docs/remark-rules.md`.
 
 | ID | Requirement | Target / rule |
 |---|---|---|
-| NFR1 | **Read-only** against all Amazon systems | No writes, ever, without explicit future gating |
+| NFR1 | **Read-only pipeline** against all Amazon systems | Writes only in Resolve ticket / Post comments, each gated by a confirmation box + dialog |
 | NFR2 | **No AI/LLM** in the run path | Deterministic rules only |
 | NFR3 | **Local & free** | Runs on the laptop; Python stdlib + common OSS packages |
 | NFR4 | **Live data only** | Startup sanitizer clears stale/partial scratch so a run can't reuse yesterday's file |
 | NFR5 | **Count-verified output** | Every lane cross-checks identity/extra/duplicate counts |
 | NFR6 | **Performance** | ~15–25 min for ~1,500 TIDs |
 | NFR7 | **Safe parallelism only** | Shared-Edge lanes stay serial; `/grbi` sequential; EagleEye + polygon fan-out are the only proven-safe concurrency |
-| NFR8 | **Auditability** | Every run logs to a file; a fresh-run wipe clears all prior run data at each Start (keeping this run's data, the SCC enum overlay, and today's exports) |
-| NFR9 | **Testability** | Core logic unit-tested offline (59 tests passing) |
+| NFR8 | **Auditability** | Every run logs to a file; run folders and Desktop exports are kept 3 days; Resolve ticket writes a per-ticket Excel report |
+| NFR9 | **Testability** | Core logic unit-tested offline (123 tests passing, 2026-11-16) |
 
 ### 6.3 Safety and compliance requirements
 
-- Never posts to, resolves, or modifies any ticket or source system.
+- The pipeline never posts to, resolves, or modifies any ticket or source system. Resolve
+  ticket and Post comments change tickets only after the operator ticks a confirmation box
+  and confirms a dialog.
 - Runs as the operator, using the operator's own Midway/SSO sessions.
 - ADS upload (which sends addresses to a plaintext endpoint) requires an explicit per-run
   approval checkbox.
@@ -330,10 +333,9 @@ timeline
 - **Cadence:** aligns to the SOP's two daily query runs (10:30 and 17:30 IST).
 - **Support:** `Docs/troubleshooting.md` lists every known failure and its fix; failing
   browser steps save screenshots under `tools/captures/`.
-- **Retention:** every fresh Start wipes all prior run folders and per-source capture
-  artifacts (not a time-based prune), and prunes old published Desktop exports from a
-  previous day; this run's own data, the SCC enum ground-truth file, and today's exports
-  are preserved.
+- **Retention:** every fresh Start deletes run folders and Desktop output workbooks older
+  than 3 days (newer ones are kept) and clears every per-source cache; the SCC enum
+  ground-truth file and Resolve ticket reports (`tools/resolve_runs/`) are kept.
 
 ---
 
@@ -341,7 +343,8 @@ timeline
 
 | Item | Description | Status |
 |---|---|---|
-| Gated write-back | Optional, explicitly-approved posting of per-ticket comments / NOC raise with a dry-run diff first | Deferred (read-only today) |
+| Gated write-back | Post comments (dry run first) and bulk Resolve ticket, each behind a confirmation | Done (2026-10 / 2026-11); NOC raise not built |
+| Audit backlog | 19 suspected defects in `.kiro/specs/full-project-bug-audit/` (SCC-export deletion by the sanitizer, post-comments records wiped at Start, pause/resume UI gaps, …) | Open |
 | Config-driven endpoints/paths | Move remaining hard-coded endpoints into one settings module/env | Partially done (Edge profile centralized) |
 | Portability | Make all machine-specific paths configurable for a second operator | Candidate |
 | Shared normalizer | One `normalize_tid` across all modules (removes a rare DOC-case edge) | Proposed |

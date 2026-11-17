@@ -5,33 +5,50 @@ Always read and follow these. When the operator gives a new standing rule, appen
 or update it here, then follow it going forward. Keep the working pipeline intact —
 never break behavior that already works.
 
+Last reviewed: 2026-11-16.
+
 ## Environment
 - Windows 11 laptop, operator alias: `kabideba` (SWA India).
-- Python: `py -3.13`.
+- Python: `py -3.13` (use `C:\Windows\py.exe -3.13` if `py` is not found).
 - Workspace root: `c:\Users\kabideba\Desktop\Kiro OOJ Automation\`.
-- Read-only against Amazon systems. No AI in the pipeline. Local one-click web app on `127.0.0.1:8000`.
+- No AI in the pipeline. Local one-click web app on `127.0.0.1:8000`.
+- The pipeline only READS Amazon systems. The only writes are page sections
+  5 (Resolve ticket) and 6 (Post comments), each behind a confirmation box + dialog.
 
 ## Verification rule
 - After any code change, run `py -3.13 -m pytest tests -q` and confirm all tests pass before reporting done.
 - Capture command output to a temp file when the terminal truncates, then read it. Clean up temp files afterward.
-- Restart / confirm the local web app when a change affects a running process.
+- Restart / confirm the local web app when a change affects a running process — but never while a run is active.
+- Only ONE `server.py` may listen on port 8000; close extra copies before starting a new one.
+- No git commit or push unless the operator asks.
 
 ## Branding
 - The automation is credited to KABIDEBA (header, footer, terminal banner). Keep this credit intact.
 
 ## Per-source rules
 
+### SIM-T tickets
+- Pulled via builder-mcp (TicketingReadActions). The first 11 Tech_Data columns are referenced by
+  template formulas BY POSITION — never reorder them.
+- **Approval in Comments** (Working Sheet AI, Tech_Data L): see `Docs/approval-in-comments.md`.
+  - CRM / Site Lead approval → `Approved` / `Site clear` (title from Phonetool: CRM,
+    Channel Relationship Manager, Site Lead, SL).
+  - Approval by anyone else (or title unreadable) → `Need check manually (<alias>)` — never ignored.
+  - "continue" is NOT an approval word.
+
+### SCC (manual)
+- SCC blocks automated browsing; the automated SCC lane is RETIRED. Do not reintroduce it and do
+  not use the SCC batch API.
+- The run pauses after SIM-T; the operator exports SCC's CSV by hand and uploads it in the SCC card
+  (required columns: Tracking ID, State, Destination, Source, Ship Option).
+- After the upload, the SCC card offers **Stop run (keep SIM-T data)**; after stopping, **Rerun with
+  same file** or upload a new file. SIM-T is never pulled again for that run.
+- Wrong/invalid TIDs = no data returned, which is NOT a failure.
+
 ### Polygon check
 - Fetch each station's polygon EXACTLY ONCE. No retries.
 - If the fetch fails or the station polygon is not found, report that pair as an error immediately — do not retry.
 - Polygon lane runs realtime (force refresh, no stale cache) for current location data.
-
-### SCC
-- Use the browser UI flow: paste TIDs into the search box, click Search, Export to CSV — for every batch.
-- Do NOT use the SCC batch API (returns 400/403; SSO 302 outside the browser).
-- Chunk size: 5000 TIDs per search (`SCC_UI_CHUNK=5000`). The result path is count-branched: =1,000 shows the `Export to CSV` button (click + capture); >1,000 ticks the ">1000" checkbox and SCC auto-downloads the result file (`AUTO_DOWNLOAD_THRESHOLD=1000`). Up to 3 refresh-retry attempts per chunk (reload page + search again).
-- Wrong/invalid TIDs = no data returned, which is NOT a failure.
-- Keep SCC retry behavior unchanged when adjusting other sources.
 
 ### PNAMA / DSR
 - If the tool fails to pull data after searching, refresh the page ONCE and try again (2 attempts total).
@@ -40,19 +57,42 @@ never break behavior that already works.
 
 ### GCRS
 - Edge browser is NOT mandatory. Runs in `auto` mode: try mcscli first (no browser); only fall back to Edge if mcscli fails.
-- During concurrent runs, GCRS is mcscli-only while browser lanes (SCC/PNAMA/DSR) are busy, and retries with Edge fallback only after those lanes finish.
+- GCRS runs after the PNAMA/DSR browser lanes finish (the Edge profile is then free for the fallback).
+- Do not change batch sizes (500 mcscli / 200 Edge) or the one-way fallback.
 
 ### ADS
 - Single-file upload (one file for all rows). First column name must always be `TrackingId`.
 - Fail fast if the ADS host is unreachable after retries.
 
 ### Concurrency
-- EagleEye (API) and GCRS (mcscli) run concurrently with the serial browser lanes (SCC → PNAMA → DSR share one Edge profile).
+- EagleEye (API) runs concurrently with the serial browser lanes PNAMA → DSR (they share one Edge
+  profile and must never run in parallel). GCRS, Polygon, ADS run after.
+
+## Ticket write features
+### Resolve ticket (section 5) — `Docs/resolve-tickets.md`
+- Input: pasted TT URLs (2k+). Resolve each UNIQUE ticket: status Resolved + closure code Successful
+  ONLY. No comment, no other field. Already Resolved/Closed tickets are skipped.
+- After finishing show a visual report and a downloadable Excel report.
+- First use after a change: resolve ONE ticket and check it in SIM-T before bulk use.
+### Post comments (section 6)
+- Dry-run preview first; nothing is posted until the operator confirms.
 
 ## Template / output
 - Column removal is DISABLED (`COLUMNS_TO_REMOVE = []`). Deleting columns shifts the grid and breaks formulas.
-- Full template = 33 Working Sheet columns. A fresh run is required to produce a complete file.
+- Full template = 33 Working Sheet columns (A..AG). Automation adds AH = CX Address Check, AI = Approval
+  in Comments; next free column is AJ.
+- Column P (Remark) stays a visible formula copied from the template P2 — never flatten it to values.
+- Output name: `Templete_OOJ Process_<Month>_KABIDEBA1_<stamp>.xlsx` (`PARTIAL_` before the stamp for partial runs).
+
+## Retention
+- Each fresh Start deletes run folders and Desktop output workbooks older than 3 days; newer ones are kept.
+- Per-source caches are cleared on every Start (fresh data only). No other Desktop file is ever touched.
+- Resolve reports in `tools/resolve_runs/` are kept.
 
 ## Operating reminders
-- Before a run, sign in to SCC, PNAMA, and DSR in the Edge automation profile.
+- Two Midway steps: terminal `mwinit -o` (Grant Midway) for SIM-T/EagleEye/GCRS, and the
+  browser sign-in check that Start runs automatically (`tools/browser_signin.py`): the
+  automation Edge window opens on PNAMA/DSR, asks for PIN + YubiKey only if needed, then
+  closes by itself and the run continues. Keep it non-fatal and read-only.
+- Sign in to SCC in your normal browser.
 - Deployment is local-per-person (each operator uses their own Midway/Edge); no hosted service.

@@ -11,7 +11,7 @@ Edge) and **overlaps the serial browser lanes** PNAMA and DSR. The browser lanes
 
 Order: **preflight → tickets → [pause for manual SCC upload] → SCC (loaded from the
 upload) → EagleEye (concurrent, background thread) → PNAMA → DSR → GCRS → Polygon → ADS
-→ fill/recalc → read_back → apply_remarks**.
+→ fill/recalc → read_back**. Remark (column P) is a live template formula.
 
 ---
 
@@ -23,7 +23,11 @@ that it is not already open), the template, and builder-mcp. The fresh-run data 
 ## 1. Tickets (SIM-T)
 `tickets_pull.py` via builder-mcp `TicketingReadActions`. Pulls the day's OOJ tickets,
 explodes them into **Tech_Data** rows (one TID per row). This defines the TID list and
-row order everything else aligns to. **Access:** builder-mcp. Fast.
+row order everything else aligns to. **Access:** builder-mcp
+(`TicketingReadActions,ReadInternalWebsites`). Each ticket's comments are also read for
+the **Approval in Comments** column (Working Sheet AI, Tech_Data L), with a Phonetool
+title lookup per approving author — see `approval-in-comments.md`. This adds one call per
+ticket, so this step is slower than the bare pull.
 
 Phase A (`run_daily.py --stop-after-tickets`) stops right after this stage and exits —
 it does not run SCC or any later lane itself. The web page's SCC card then shows an
@@ -99,11 +103,12 @@ recalculate so formula columns (State, Zone, AF/AD/AG, etc.) have real values.
 the 25-column final report contract, and that no unexpected Excel errors exist. The
 download stays locked unless this passes.
 
-## 11. Apply Remark rules
-`apply_remarks.py` + `remark_rules.py` rewrite Working Sheet column **P** to final
-literal values per the operator's rules (see `remark-rules.md`). Runs **after**
-read-back so it doesn't disturb the verification. Column removal is **disabled** — all
-columns are kept (removing them shifted the grid and broke formulas).
+## 11. Remark (column P)
+Column **P** stays a **live formula**: the template's own P2 (the operator's complete
+remark formula) is translated down every row by `fill_template.extend_working_sheet`,
+and `read_back` requires the generated P2 to equal the template P2. There is no separate
+"apply remarks" stage any more (`apply_remarks.py` remains only as a standalone CLI).
+Column removal is **disabled** — all columns are kept. See `remark-rules.md`.
 
 ---
 
@@ -124,15 +129,19 @@ The browser lanes (PNAMA/DSR/ADS) need the automation Edge profile signed in to 
 site. EagleEye/GCRS use the Midway session directly. SCC is no longer one of this app's
 own browser lanes — the operator exports it manually and uploads the CSV.
 
-## Data retention (fresh-run wipe)
+## Data retention (fresh-Start clean-up)
 
-At the start of every fresh Start (Phase A), `run_daily.wipe_old_runs()` deletes **all**
-prior run folders under `tools/captures/runs/` and all per-source capture artifacts under
-`tools/captures/<source>/` — a hard wipe, not a time-based window. It preserves this
-run's own directory and `scc_enum_map.json` (the SCC State enum ground-truth overlay). It
-also prunes old published Desktop exports (`OOJ_Process_Filled_*.xlsx` from a previous
-day), keeping today's. `prune_history()` (the old 7-day-window pruner) still exists in
-`run_daily.py` but is no longer called from the live path — `wipe_old_runs` replaced it
-at the Phase-A call site. The startup sanitizer `tools/sanitize_captures.py` (browser
-scratch, `.crdownload`/`.tmp`/`.partial`, `~/Downloads` leftovers) still runs at server
-start/restart, unchanged.
+At the start of every fresh Start (Phase A), `run_daily.wipe_old_runs(current_dir,
+keep_days=RUN_KEEP_DAYS)` with `RUN_KEEP_DAYS = 3` (changed 2026-11-16):
+
+- deletes run folders under `tools/captures/runs/` **older than 3 days** (by the
+  `YYYYMMDD_HHMMSS` folder name, else modified time); never the run that is starting;
+- deletes **every** per-source cache file under `tools/captures/<source>/` regardless of
+  age (fresh-data rule), except `scc_enum_map.json`;
+- deletes Desktop `Templete_OOJ Process_*.xlsx` exports **older than 3 days**; no other
+  Desktop file is touched.
+
+Phase B (`--resume-dir`) never cleans up. `tools/resolve_runs/` is outside `captures/` and
+is never cleaned. `prune_history()` (old 7-day pruner) still exists but is not called.
+The startup sanitizer `tools/sanitize_captures.py` (browser scratch,
+`.crdownload`/`.tmp`/`.partial`, `~/Downloads` leftovers) runs at server start/restart.

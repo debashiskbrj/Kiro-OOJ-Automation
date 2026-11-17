@@ -1,109 +1,144 @@
 # User Guide — running the OOJ automation
 
-This is the day-to-day guide for the operator. It covers what you need set up once,
-and the exact steps to run the pipeline and get your filled workbook.
+The day-to-day guide for the operator: what must be set up once, and the exact steps
+to run the pipeline, get the filled workbook, resolve tickets and post comments.
+
+Last reviewed: 2026-11-16.
 
 ---
 
 ## One-time prerequisites
 
-You need these on the machine (they're already set up on kabideba's laptop):
+These are already set up on kabideba's laptop:
 
-- **Python 3.13** on PATH (`py -3.13`), with `openpyxl`, `playwright`, `requests`.
-- **Playwright + Edge**: the browser lanes drive Microsoft Edge (`channel="msedge"`).
-- **Midway**: `mwinit -o` produces the session cookie the API lanes need.
-- **mcscli**: installed at
-  `C:\Program Files\Common Files\AmazonMidwayClientSuite\bin\mcscli.exe` (for SIW/GCRS).
-- **builder-mcp**: at `C:\Users\kabideba\AppData\Local\Toolbox\bin\builder-mcp.exe`
-  (for SIM-T ticket pull).
+- **Python 3.13** (`py -3.13`, or `C:\Windows\py.exe -3.13`). Missing packages
+  (`openpyxl`, `playwright`, `requests`) are installed automatically the first time the
+  server starts (`tools/auto_setup.py`).
+- **Playwright + Microsoft Edge**: the PNAMA/DSR/ADS lanes drive Edge (`channel="msedge"`).
+- **Midway**: `mwinit -o` produces the session cookie that SIM-T, EagleEye and GCRS use.
+- **mcscli**: `C:\Program Files\Common Files\AmazonMidwayClientSuite\bin\mcscli.exe`
+  (GCRS / SIW).
+- **builder-mcp**: `C:\Users\kabideba\AppData\Local\Toolbox\bin\builder-mcp.exe`
+  (SIM-T ticket pull, Phonetool title lookup, Resolve ticket).
 - **The automation Edge profile** at
   `C:\Users\kabideba\Desktop\My Files\My Automation\TT_Automation\edge_profile`,
-  signed in to the PNAMA and DSR QuickSight dashboards. (SCC is no longer part of this
-  profile's job — see below.)
-- **Your own browser, signed in to SCC** (`logistics.amazon.in`) — SCC's automated
-  browser lane was retired because the site now blocks automated browsing, so you
-  search and export SCC's CSV by hand in whatever browser you normally use.
+  signed in to the PNAMA and DSR QuickSight dashboards. Another machine can point to its
+  own profile with the `OOJ_EDGE_PROFILE` environment variable (`tools/ooj_paths.py`).
+- **Your normal browser signed in to SCC** (`logistics.amazon.in`). SCC blocks
+  automated browsing, so you search and export SCC by hand.
 
-If a PNAMA/DSR lane fails with a login/authentication message, it means that site
-isn't signed in to the automation Edge profile — sign in there once and re-run.
-
-> **Cloning onto another machine?** The Edge profile path above is kabideba's default.
-> Point it at your own profile with the `OOJ_EDGE_PROFILE` environment variable (read in
-> `tools/ooj_paths.py`) instead of editing code. Missing Python packages are installed
-> automatically on first server start by `tools/auto_setup.py`, and `tools/captures/`
-> plus any secrets are gitignored, so a fresh clone ships with no real data. See the
-> README for the full first-run checklist.
+If PNAMA or DSR fails with a login message, sign in to that dashboard inside the
+automation Edge profile once and run again.
 
 ---
 
 ## Daily run — the web page
 
-1. **Start the app.** Double-click **`Start OOJ Web.bat`** in the project root, or run:
-   ```
-   py -3.13 tools\web\server.py
-   ```
-   It serves **http://127.0.0.1:8000/** and opens your browser.
+1. **Start the app.** Double-click **`Start OOJ Web.bat`** (or run
+   `py -3.13 tools\web\server.py`). The page opens in its own window at
+   **http://127.0.0.1:8000/**. If the page looks old after an update, press **Ctrl+F5**.
 
-2. **Grant Midway access (step 1 on the page).** Click **Grant Midway access**. A
-   terminal window opens running `mwinit -o` — type your PIN there and approve. The
-   page unlocks Start once the session is valid. You only do this once per session.
+2. **1. Midway access.** Click **Grant Midway access**. A terminal window runs
+   `mwinit -o`; type your PIN there and touch your security key. Start unlocks when the
+   session is valid.
 
-3. **Start today's run (step 2).**
-   - Tick **Approve ADS upload** — required for a complete, downloadable workbook (ADS
-     uploads TIDs and addresses to its endpoint).
-   - Optionally tick **Allow partial download if a source fails** — if a source can't
-     fetch, its sheet is left blank and you still get the workbook (labelled PARTIAL).
-     Leave it off for a strict full run.
+3. **2. Start today's run.**
+   - Tick **Approve ADS upload** (required for a complete workbook).
+   - Optionally tick **Allow partial download if a source fails** (a failed source's
+     sheet is left blank and the file is labelled PARTIAL).
    - Click **Start run**.
 
-4. **Watch progress (step 3).** Eight source cards (SIM-T Tickets, SCC, EagleEye,
-   PNAMA, DSR, GCRS, Polygon, ADS) show running/done/error with a **% bar** and live
-   counts. Below them: the full enriched table as it fills, and the **Live log** with a
-   **Copy log** button (use it to share the log if something fails).
-   - Each source shows a **Download CSV** link once it has data, so you can grab an
-     individual source's output mid-run.
-   - **Stop run** aborts the current run (and its browser) if you need to.
+4. **3. Progress.** Eight cards — SIM-T Tickets, SCC, EagleEye, PNAMA, DSR, GCRS,
+   Polygon, ADS — show status, a % bar, counts and a **Download CSV** link once a source
+   has data. The **Live log** has a **Copy log** button.
 
-5. **Upload SCC's export (the pause).** Once the SIM-T ticket pull finishes, the run
-   **pauses** — SCC's website now blocks automated browsing, so SCC is a manual step:
-   - The SCC card shows an **"awaiting upload"** badge with a file picker.
-   - Take the SIM-T TIDs, search them in SCC yourself in a regular browser, and export
-     SCC's native result CSV.
-   - Choose that CSV file in the SCC card and click **Upload SCC CSV**.
-   - A valid upload (right columns: Tracking ID, State, Destination, Source, Ship
-     Option) is accepted and the run **automatically resumes** from SCC onward — no
-     extra click needed. A rejected upload shows the reason; fix the file and try again.
+5. **The SCC pause (card 2).** After the SIM-T pull the run pauses:
+   - Download the SIM-T TIDs from card 1, search them in SCC, export SCC's CSV.
+   - In the SCC card choose the file and click **Upload SCC CSV**. A valid file (columns
+     Tracking ID, State, Destination, Source, Ship Option) resumes the run automatically.
+     A rejected file shows the reason; fix it and upload again.
 
-6. **Get the result (step 4).** When the run finishes, the page runs verification
-   (read-back + polygon check) automatically. The **Download** button unlocks only when
-   the workbook is valid. The file is also copied to your **Desktop** as
-   `OOJ_Process_Filled_<stamp>.xlsx` (or `..._PARTIAL_<stamp>.xlsx` for a partial run).
+6. **Stop after the SCC upload (and rerun).** While the steps after SCC are running, the
+   SCC card shows a red **Stop run (keep SIM-T data)** button.
+   - Click it and confirm. The run stops; the SIM-T data and your SCC file are kept.
+   - The SCC card then shows **stopped** with two choices:
+     **Rerun with same file**, or choose a new SCC CSV and click **Upload SCC CSV**.
+   - Files the stopped attempt had already made are moved to a `stopped_<time>` folder
+     inside that run's folder (not deleted).
+   - The top **Stop run** button still ends the whole run.
+
+7. **4. Result.** When the run finishes, verification (read-back + polygon check) runs
+   automatically. **Download filled workbook** unlocks only for a valid file. A copy is
+   saved to your Desktop as
+   `Templete_OOJ Process_<Month>_KABIDEBA1_<stamp>.xlsx`
+   (`..._PARTIAL_<stamp>.xlsx` for a partial run).
 
 ---
 
-## What the final file contains
+## 5. Resolve ticket (optional, changes real tickets)
 
-- The Excel template, filled from all sources, with formulas recalculated.
-- The Working Sheet **Remark (column P)** rewritten to final values per the rules in
-  `remark-rules.md` (six protected values, plus the State-driven rules).
-- All original template columns are kept.
+Resolves SIM-T tickets in bulk with status **Resolved** and closure code
+**Successful**. No comment is added and nothing else is changed. It runs under your own
+login. Full details: `resolve-tickets.md`.
+
+1. Paste the TT URLs into the box, one per line (2,000+ is fine). ShortIDs such as
+   `D572189109` also work.
+2. Click **Check list**. Nothing is changed yet. You see entries pasted, duplicates
+   removed, invalid entries (listed, never resolved) and unique tickets to resolve.
+3. Tick **I have checked the list…**, click **Resolve tickets**, confirm.
+4. Watch the counts: resolved now, already resolved, failed, remaining. Failures are
+   listed first in the table.
+5. **Stop** is available at any time; tickets already resolved stay resolved.
+6. Click **Download resolved report** (Excel: Summary, Results, Invalid input).
+
+**First time on a new machine or after an update: try ONE ticket first** and confirm in
+SIM-T that it shows Resolved / Successful. Pasting the same list again is safe: tickets
+that are already resolved are skipped.
+
+---
+
+## 6. Post comments (optional, changes real tickets)
+
+Upload an `.xlsx` with **url**, **tid** and **remark** columns. A dry-run preview runs
+first; nothing is posted until you tick the confirmation and click **Post comments to
+tickets**. **Retry failed** re-posts only the failed tickets.
+
+---
+
+## What the final workbook contains
+
+- The Excel template filled from all sources, with formulas recalculated.
+- **Remark (Working Sheet column P)** is a live formula from the template, so you can
+  trace each remark in the formula bar (rules: `remark-rules.md`).
+- **AH — CX Address Check**: OK / NOT OK / MISMATCH for the customer address.
+- **AI — Approval in Comments**: from the ticket comments (`approval-in-comments.md`):
+  `Approved` / `Site clear` when a CRM or Site Lead approved,
+  `Need check manually (<alias>)` when only someone else approved, blank when nobody did.
+
+---
+
+## Local files and clean-up
+
+- Each fresh **Start run** deletes run folders and Desktop output workbooks older than
+  **3 days**. Newer ones are kept. Your other Desktop files are never touched.
+- Each source's cached downloads are cleared on every Start, so a run only uses fresh data.
+- Resolve ticket reports are kept in `tools/resolve_runs/` and are not cleaned up.
 
 ---
 
 ## Rough timing
 
-A full run of ~1,400–1,500 TIDs takes roughly 15–25 minutes of automated time
-(PNAMA/DSR each a few minutes; DSR's dashboard is the slowest to load) and GCRS, plus
-however long you take to search SCC and export/upload its CSV during the pause.
-EagleEye and the fill/verify steps are fast.
+- Full run of ~1,400–1,500 TIDs: about 15–25 minutes of automated time, plus your SCC
+  search/export time. SIM-T takes longer than before because every ticket's comments are
+  read for the approval column.
+- Resolve ticket: 4 tickets at a time; roughly 30–60 minutes for 2,000 tickets
+  (estimate, depends on SIM-T speed).
 
 ---
 
 ## If something goes wrong
 
-- Use **Copy log** and check `Docs/troubleshooting.md` — it lists the known failures
-  (SCC upload rejected, PNAMA/DSR not signed in, ADS host down, Edge profile open,
-  blocked port) and how to fix each.
-- Screenshots of failing browser steps are saved under `tools/captures/<source>/`.
-- If you just need the file despite one source being down, re-run with **Allow partial
-  download** ticked.
+- **Copy log** and check `troubleshooting.md`.
+- Page shows old buttons or odd state: press **Ctrl+F5**. If still wrong, click
+  **Restart server** at the top right (only when nothing is running).
+- Need the file despite one source being down: run again with **Allow partial download**.

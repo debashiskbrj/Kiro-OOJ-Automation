@@ -85,7 +85,9 @@ class PostCommentsController:
             "--mode", mode,
             "--out-dir", str(out_dir),
         ]
-        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        # No console window for the background runner (output goes to run.log).
+        creationflags = (subprocess.CREATE_NEW_PROCESS_GROUP
+                         | getattr(subprocess, "CREATE_NO_WINDOW", 0)) if os.name == "nt" else 0
         self._mode = mode
         self._out_dir = out_dir
         self._last_out_dir = out_dir
@@ -228,6 +230,7 @@ class PostCommentsController:
                         capture_output=True,
                         text=True,
                         timeout=30,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                     )
                 else:
                     self._proc.terminate()

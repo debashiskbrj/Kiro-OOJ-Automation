@@ -28,8 +28,9 @@ to handle failures.
 
 - **In scope:** running the local automation, interpreting progress, retrieving and
   validating the output, and recovering from common failures.
-- **Out of scope:** posting comments or resolving tickets (the tool is **read-only**);
-  OBLT lookups (descoped); any AI/LLM step (none exists).
+- **Also in scope (optional, writes to SIM-T):** bulk-resolving tickets (page section 5,
+  `resolve-tickets.md`) and posting comments (section 6), each behind a confirmation.
+- **Out of scope:** OBLT lookups (descoped); any AI/LLM step (none exists).
 
 ## 3. Roles and responsibilities
 
@@ -41,14 +42,17 @@ to handle failures.
 
 ## 4. Safety and ground rules (read first)
 
-1. **Read-only.** The automation never posts to, resolves, or modifies any Amazon system.
+1. **The pipeline only reads.** The only writes to Amazon systems are Resolve ticket
+   (status Resolved + closure code Successful) and Post comments; both need the operator
+   to tick a confirmation box and confirm a dialog. Try one ticket first after any change.
 2. **Live data only.** A startup sanitizer clears stale/partial scratch so a run can never
    reuse yesterday's or a half-finished file.
 3. **No AI/LLM** in the run path — the logic is deterministic and auditable.
 4. **ADS upload** sends addresses to a plaintext endpoint; it requires the explicit
    per-run **Approve ADS upload** checkbox.
-5. **Every run is logged** to a file under `tools/captures/`; every fresh Start wipes
-   all prior run data there first (not a time-based prune).
+5. **Every run is logged** to a file under `tools/captures/runs/`. Each fresh Start
+   deletes run folders and Desktop output workbooks older than **3 days** and clears every
+   source cache (fresh data only).
 6. **SCC is a manual step.** SCC's website blocks automated browsing, so the run
    pauses after the SIM-T ticket pull and waits for the operator to upload SCC's
    exported CSV before continuing.
@@ -120,16 +124,20 @@ flowchart TD
 5. **Monitor progress (step 3).** Eight source cards (SIM-T, SCC, EagleEye, PNAMA, DSR,
    GCRS, Polygon, ADS) show running/done/error with a **% bar** and counts. Below: the live
    table and the **Live log** with **Copy log**. Each source exposes a **Download CSV** link
-   once it has data. **Stop run** aborts if needed.
+   once it has data. **Stop run** aborts the whole run if needed.
 6. **Upload SCC's export (the pause).** Once the SIM-T pull finishes, the run **pauses** —
    SCC's automated browser lane was retired because the site now blocks automated
    browsing. The SCC card shows an "awaiting upload" badge: search the SIM-T TIDs in SCC
    yourself, export the CSV, and upload it there. A valid upload automatically resumes
-   the run from SCC onward.
+   the run from SCC onward. While it runs, **Stop run (keep SIM-T data)** in the SCC card
+   stops it without losing the SIM-T pull; then **Rerun with same file** or upload a new file.
 7. **Retrieve the result (step 4).** When the run finishes, verification runs automatically
-   (read-back + polygon). **Download** unlocks only when the workbook is valid. The file is
-   also copied to the **Desktop** as `OOJ_Process_Filled_<stamp>.xlsx`
-   (or `..._PARTIAL_<stamp>.xlsx`).
+   (read-back + polygon). **Download filled workbook** unlocks only when the workbook is
+   valid. The file is also copied to the **Desktop** as
+   `Templete_OOJ Process_<Month>_KABIDEBA1_<stamp>.xlsx` (`PARTIAL_` before the stamp for
+   a partial run).
+8. **Resolve tickets (optional, section 5).** Paste the TT URLs, **Check list**, tick the
+   confirmation, **Resolve tickets**, then **Download resolved report**.
 
 ### 6.3 Expected timing
 
@@ -279,6 +287,7 @@ timeline
     2026-09-30 : Startup sanitizer prevents stale data : Restart button
     2026-10-03 : Audit + 9 safe fixes : 59 tests green
     2026-10-12 : SCC automated lane retired - manual CSV upload with pause/resume : fresh-run wipe replaces 7-day prune
+    2026-11-16 : Stop/rerun after SCC upload : Resolve ticket section : CRM/Site Lead approval rule : 3-day retention : 123 tests green
 ```
 
 ### 11.3 Quality posture

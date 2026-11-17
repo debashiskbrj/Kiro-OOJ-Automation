@@ -76,9 +76,45 @@
       <p id="desktop-note" class="state"></p>
     </section>
 
-    <!-- Step 5: Post comments (optional, high-risk write) -->
+    <!-- Step 5: Resolve tickets (live write: status Resolved, closure code Successful) -->
+    <section class="card" id="resolve-card">
+      <h2>5. Resolve ticket</h2>
+      <p class="hint">Paste the TT URLs below, one per line (ShortIDs like <strong>D572189109</strong> also work). Duplicates are removed automatically. Click <strong>Check list</strong> first; nothing is changed until you confirm.</p>
+      <textarea id="rt-input" class="rt-input" rows="8" spellcheck="false"
+        placeholder="https://t.corp.amazon.com/D572189109&#10;https://t.corp.amazon.com/D572189110&#10;..."></textarea>
+      <div class="btn-row">
+        <button id="rt-check-btn" type="button">Check list</button>
+        <button id="rt-clear-btn" type="button" class="ghost">Clear</button>
+      </div>
+      <div id="rt-check-state" class="rt-check"></div>
+
+      <div class="pc-danger-zone">
+        <p class="hint pc-warn">This RESOLVES REAL SIM-T tickets (status Resolved, closure code Successful) under your login. Tickets that are already resolved are skipped. Check the counts above before continuing.</p>
+        <label class="checkbox">
+          <input type="checkbox" id="rt-confirm-check" />
+          I have checked the list and want to resolve these tickets.
+        </label>
+        <div class="btn-row">
+          <button id="rt-start-btn" class="danger" disabled>Resolve tickets</button>
+          <button id="rt-stop-btn" class="danger" disabled>Stop</button>
+        </div>
+        <p id="rt-state" class="state"></p>
+      </div>
+
+      <div id="rt-progress" class="rt-progress"></div>
+      <div id="rt-table-wrap" class="table-scroll rt-table-wrap" hidden>
+        <table id="rt-table"><thead></thead><tbody></tbody></table>
+      </div>
+      <details id="rt-log-details">
+        <summary>Resolve log</summary>
+        <pre id="rt-log"></pre>
+      </details>
+      <button id="rt-report-btn" type="button" class="ghost" disabled>Download resolved report</button>
+    </section>
+
+    <!-- Step 6: Post comments (optional, high-risk write) -->
     <section class="card" id="post-comments-card">
-      <h2>5. Post comments (optional)</h2>
+      <h2>6. Post comments (optional)</h2>
       <p class="hint">Upload an .xlsx with <strong>url</strong>, <strong>tid</strong> and <strong>remark</strong> columns. A dry-run preview parses the file first; nothing is posted until you review it and confirm.</p>
       <div class="btn-row">
         <input type="file" id="pc-file-input" accept=".xlsx" />

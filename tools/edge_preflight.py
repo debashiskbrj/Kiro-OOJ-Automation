@@ -63,6 +63,8 @@ def profile_process_ids(profile_dir: Path = PROFILE_DIR) -> list[int]:
         capture_output=True,
         text=True,
         timeout=30,
+        # The page polls this every few seconds: never flash a console window.
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     if completed.returncode != 0:
         raise RuntimeError("Unable to inspect Edge automation-profile ownership")

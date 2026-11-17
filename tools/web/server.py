@@ -13,6 +13,10 @@ Endpoints
   GET  /table         -> current enriched rows (JSON) once available
   GET  /download      -> the verified workbook (blocked until publishable)
   POST /restart       -> stops any run, relaunches a fresh server on the same port
+  POST /resolve/check -> parse pasted TT URLs into unique ticket IDs (local only)
+  POST /resolve/start -> LIVE: resolve the checked tickets (needs {"confirmed": true})
+  POST /resolve/stop  -> stop the resolve run
+  GET  /resolve/status, /resolve/report-download
 
 Run:  py -3.13 tools\web\server.py  [--port 8765]
 """
@@ -36,6 +40,7 @@ from pathlib import Path
 
 import run_controller as rc
 import post_comments_controller as pcc
+import resolve_controller as rsc
 
 HERE = Path(__file__).resolve().parent
 # tools/ (the parent of tools/web) holds the shared pipeline modules; ensure it is
@@ -129,6 +134,10 @@ def _relaunch_server(port: int) -> None:
     """
     try:
         rc.CONTROLLER.stop_run()
+    except Exception:
+        pass
+    try:
+        rsc.CONTROLLER.stop()  # never leave a resolve run going without a page to watch it
     except Exception:
         pass
     _sanitize("restart")
@@ -231,6 +240,12 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/post-comments/report-download":
             self._serve_report_download()
             return
+        if route == "/resolve/status":
+            self._send_json(rsc.CONTROLLER.get_status())
+            return
+        if route == "/resolve/report-download":
+            self._serve_resolve_report()
+            return
         self.send_error(404, "unknown route")
 
     # ------------------------------------------------------------- POST
@@ -260,6 +275,16 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/scc/upload":
             self._scc_upload()
             return
+        if route == "/scc/stop":
+            # Stop everything after the SCC upload; SIM-T data and the SCC file are kept.
+            result = rc.CONTROLLER.stop_after_scc()
+            self._send_json(result, status=200 if result.get("stopped") else 409)
+            return
+        if route == "/scc/rerun":
+            # Rerun the after-SCC stage with the SAME uploaded file.
+            result = rc.CONTROLLER.continue_after_scc()
+            self._send_json(result, status=200 if result.get("started") else 409)
+            return
         if route == "/post-comments/upload":
             self._post_comments_upload()
             return
@@ -273,6 +298,24 @@ class Handler(BaseHTTPRequestHandler):
             return
         if route == "/post-comments/stop":
             result = pcc.CONTROLLER.stop()
+            self._send_json(result, status=200 if result.get("stopped") else 409)
+            return
+        if route == "/resolve/check":
+            # Local parsing only: extracts unique ticket IDs, changes nothing.
+            result = rsc.CONTROLLER.check(str(self._read_body().get("text") or ""))
+            self._send_json(result, status=200 if result.get("ok") else 409)
+            return
+        if route == "/resolve/start":
+            # LIVE write: resolves the checked tickets (status Resolved, code Successful).
+            body = self._read_body()
+            if body.get("confirmed") is not True:
+                self._send_json({"started": False, "reason": "Tick the confirmation box first"}, status=409)
+                return
+            result = rsc.CONTROLLER.start()
+            self._send_json(result, status=200 if result.get("started") else 409)
+            return
+        if route == "/resolve/stop":
+            result = rsc.CONTROLLER.stop()
             self._send_json(result, status=200 if result.get("stopped") else 409)
             return
         self.send_error(404, "unknown route")
@@ -375,6 +418,22 @@ class Handler(BaseHTTPRequestHandler):
         target = pcc.CONTROLLER.report_path()
         if target is None or not Path(target).exists():
             self._send_json({"error": "No post-comments report exists yet"}, status=409)
+            return
+        data = Path(target).read_bytes()
+        self.send_response(200)
+        self.send_header(
+            "Content-Type",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.send_header("Content-Disposition", f'attachment; filename="{Path(target).name}"')
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _serve_resolve_report(self):
+        target = rsc.CONTROLLER.report_path()
+        if target is None or not Path(target).exists():
+            self._send_json({"error": "No resolve report yet (or a run is still in progress)"}, status=409)
             return
         data = Path(target).read_bytes()
         self.send_response(200)

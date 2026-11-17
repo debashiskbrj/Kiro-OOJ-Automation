@@ -73,8 +73,8 @@ Invalid → resolve with `TID: <tid> | <remark>` comments.
 - **Tech_Data rules = the user's AgentSpace "SWA OOJ Ticket Analyzer"** (station code
   from the description line only, `DOC…` TIDs, `TID not found`, snapshot pagination).
 - Tech_Data source of truth = SIM-T query (not the Quip export).
-- Everything here is **read-only** against Amazon systems until the user explicitly
-  approves write actions (posting comments / resolving tickets).
+- The pipeline is **read-only** against Amazon systems. Write actions exist only as
+  operator-confirmed page sections: 5. Resolve ticket and 6. Post comments (2026-11).
 - Report format: **wait for the user's guidance** once tool access is complete.
 
 ## 6. Data sources at a glance (details in architecture.md, status in access-status.md)

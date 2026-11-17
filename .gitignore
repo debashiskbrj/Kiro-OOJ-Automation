@@ -6,6 +6,7 @@
 #    station screenshots, exported CSV/XLSX from SCC/PNAMA/DSR/ADS/etc.) ──
 tools/captures/
 tools/output/
+tools/resolve_runs/
 **/captures/
 *.download.tmp
 

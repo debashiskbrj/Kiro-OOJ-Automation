@@ -25,7 +25,7 @@ flowchart TD
     ADS["ADS Streamlit<br/>clean Edge · plaintext HTTP restriction"]
     S4["Template fill + Excel recalc<br/>row-aligned AG · column-P remarks"]
     S5["Verified validation outputs<br/>25-column report + polygon XLSX"]
-    S6["Write actions<br/>not implemented; explicit approval required"]
+    S6["Write actions<br/>Resolve ticket + Post comments; operator confirmation required"]
 
     S0 --> S1 --> S2
     S2 --> B

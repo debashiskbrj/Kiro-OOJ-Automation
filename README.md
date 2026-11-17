@@ -1,51 +1,42 @@
 # OOJ Process Automation
 
-Automates the daily SWA India **Out-of-Jurisdiction (OOJ)** ticket process end to end:
-pull tickets from SIM-T, extract tracking IDs (TIDs), enrich each TID from Amazon
-internal tools, apply the remark rules, and produce a filled, downloadable Excel
-workbook — replacing the manual template workflow.
+Automates the daily SWA India **Out-of-Jurisdiction (OOJ)** ticket process: pull tickets
+from SIM-T, extract tracking IDs (TIDs), enrich each TID from Amazon internal tools, and
+produce the filled Excel workbook — replacing the manual template workflow. The same local
+page can also bulk-resolve tickets and post comments, each behind an explicit confirmation.
 
-Everything runs **locally** on the operator's Windows laptop. It is **free** (Python
-standard library plus a few well-known packages), uses **no AI/LLM in the run path**,
-and is **read-only** against Amazon source systems (it never posts to or resolves
-tickets).
+Built by **KABIDEBA**, SWA India. Runs **locally** on the operator's Windows laptop, is
+**free**, and uses **no AI/LLM** in the run path.
+
+Last reviewed: 2026-11-16.
 
 ---
 
 ## Quick start
 
-1. Make sure prerequisites are met (see `Docs/user-guide.md`): Python 3.13, a valid
-   Midway session (`mwinit -o`), and the automation Edge profile signed in to SCC and
-   the QuickSight dashboards.
-2. Double-click **`Start OOJ Web.bat`** (or run `py -3.13 tools\web\server.py`).
-3. Open **http://127.0.0.1:8000/** — it usually opens automatically.
-4. Grant Midway access, tick **Approve ADS upload**, click **Start run**.
-5. When it finishes, click **Download** — the filled workbook is also saved to your
-   Desktop.
-
-Full step-by-step: **`Docs/user-guide.md`**.
-
----
-
-## What you get
-
-- A one-click local web page that runs the whole pipeline and shows live per-source
-  progress (with a % bar per tool), a live log with a **Copy log** button, per-source
-  CSV download buttons, a **Stop run** button, and a gated **Download** for the final
-  workbook.
-- The final workbook has the Working Sheet Remark (column P) rewritten per the
-  operator's rules (see `Docs/remark-rules.md`).
-- A **partial** mode: if a source can't fetch, tick "Allow partial download" to still
-  get the workbook with that source's sheet left blank (labelled PARTIAL).
+1. Prerequisites (once): Python 3.13, Midway (`mwinit -o`), the automation Edge profile
+   signed in to the PNAMA/DSR dashboards, your normal browser signed in to SCC.
+   Details: `Docs/user-guide.md`.
+2. Double-click **`Start OOJ Web.bat`** — the page opens at http://127.0.0.1:8000/.
+3. **Grant Midway access** → tick **Approve ADS upload** → **Start run**.
+4. When the run pauses at SCC, export SCC's CSV by hand and upload it in the SCC card.
+5. When it finishes, **Download filled workbook** (also saved to your Desktop as
+   `Templete_OOJ Process_<Month>_KABIDEBA1_<stamp>.xlsx`).
 
 ---
 
 ## The pipeline (in order)
 
-SIM-T tickets → EagleEye → SCC → PNAMA → DSR → GCRS → Polygon → ADS → fill template →
-Excel recalc → verify (read-back) → apply Remark rules → download.
+SIM-T tickets (+ approval scan) → **pause for manual SCC upload** → SCC → EagleEye ∥
+PNAMA → DSR → GCRS → Polygon → ADS → fill template → Excel recalc → verify (read-back) →
+download.
 
-Per-stage details: **`Docs/pipeline-reference.md`**.
+Per-stage details: `Docs/pipeline-reference.md`.
+
+## Page sections
+
+1. Midway access · 2. Start today's run · 3. Progress (8 cards, SCC upload / Stop / Rerun)
+· 4. Result · **5. Resolve ticket** · **6. Post comments (optional)**.
 
 ---
 
@@ -53,37 +44,42 @@ Per-stage details: **`Docs/pipeline-reference.md`**.
 
 | Doc | What it covers | For |
 |---|---|---|
-| `README.md` (this file) | Overview + entry point | Everyone |
-| `Docs/project-structure.md` | Where every file lives + what goes where | Both |
-| `Docs/user-guide.md` | How to run it daily, prerequisites, the web page | Operator |
-| `Docs/pipeline-reference.md` | Each source/stage: what it does, how it fetches | Both |
-| `Docs/developer-guide.md` | Code layout, how to change things, tests | Maintainer |
-| `Docs/troubleshooting.md` | Known failures and fixes (SCC, PNAMA, ADS, Edge, ports) | Both |
-| `Docs/remark-rules.md` | The Working Sheet column-P Remark logic | Both |
-| `Docs/web-runner.md` | The local web app internals, endpoints, retention | Maintainer |
-| `Docs/polygon-checker.md` | The local GCRS polygon/jurisdiction checker | Maintainer |
+| `README.md` | Overview, entry point, ground rules | Everyone |
+| `Docs/user-guide.md` | Daily steps on the web page, prerequisites, timing | Operator |
+| `Docs/SOP-OOJ-Automation.md` | Standard operating procedure + checklist | Operator |
+| `Docs/troubleshooting.md` | Known failures and fixes | Both |
+| `Docs/resolve-tickets.md` | Section 5: bulk resolve rules, outputs, safety | Both |
+| `Docs/approval-in-comments.md` | Column AI: approval phrases, CRM/Site Lead rule | Both |
+| `Docs/remark-rules.md` | Working Sheet column P (Remark) formula logic | Both |
 | `Docs/report-spec.md` | Final report columns | Both |
-| `Docs/architecture.md` | Original design notes | Maintainer |
+| `Docs/pipeline-reference.md` | Each source/stage, data retention | Both |
+| `Docs/web-runner.md` | Web app internals: phases, endpoints, gate, retention | Maintainer |
+| `Docs/developer-guide.md` | Code layout, how to change things, tests | Maintainer |
+| `Docs/project-structure.md` | Where every file lives | Maintainer |
+| `Docs/polygon-checker.md` | GCRS polygon / jurisdiction checker | Maintainer |
+| `Docs/architecture.md` | Design notes | Maintainer |
 | `Docs/implementation.md` | Build history / current state | Maintainer |
-| `Docs/context.md` | Single-source-of-truth working notes | Maintainer |
+| `Docs/context.md` | Working notes and background | Maintainer |
 | `Docs/access-status.md` | Per-source access lane status | Maintainer |
-| `Docs/edge-cases.md` | Live log of edge cases learned | Maintainer |
-| `Docs/changes.md` | Live changelog | Maintainer |
+| `Docs/edge-cases.md` | Edge cases learned | Maintainer |
+| `Docs/PRD-OOJ-Automation.md` | Product requirements | Maintainer |
+| `Docs/changes.md` | Changelog (newest first) | Maintainer |
+| `.kiro/steering/ooj-instructions.md` | Standing operator rules for AI assistants | Maintainer |
 
 ---
 
-## Safety / ground rules
+## Ground rules
 
-- Read-only against Amazon systems. Never posts, resolves, or pushes git without
-  explicit approval.
-- Live data only — no stale reuse. At **server startup and on restart**, a safe
-  sanitizer (`tools/sanitize_captures.py`) clears output-corrupting scratch — browser
-  download folders, partial downloads (`.crdownload`/`.tmp`/`.partial`), atomic-write
-  sidecars, and stale PNAMA/DSR export leftovers in `~/Downloads` — so a run can never
-  pick up yesterday's or a half-finished file as fresh data. It only ever touches
-  `tools/captures/` and known export names; it never touches code, docs, the template,
-  tests, or a run's real output.
-- Local run history under `tools/captures/` is auto-pruned after **7 days**.
-- The whole thing runs as the operator, using the operator's own Midway/SSO sessions.
+- **Reads** Amazon systems for the pipeline. **Writes** only in Resolve ticket and Post
+  comments, and only after the operator ticks a confirmation box and confirms. Never
+  pushes git without an explicit request.
+- **Fresh data only.** Each fresh Start clears every source cache; at server start/restart
+  `tools/sanitize_captures.py` clears partial downloads and browser scratch.
+- **Retention.** Run folders and Desktop output workbooks older than **3 days** are deleted
+  at each fresh Start; newer ones are kept. Resolve reports (`tools/resolve_runs/`) are kept.
+- **Don't break what works.** Changes must be additive; run
+  `py -3.13 -m pytest tests -q` (all must pass) before and after any change.
+- Runs as the operator with the operator's own Midway/SSO sessions.
+- KABIDEBA credit stays in the page header/footer and the server banner.
 
-See `Docs/context.md` for the full standing rules.
+Standing rules in full: `.kiro/steering/ooj-instructions.md`.

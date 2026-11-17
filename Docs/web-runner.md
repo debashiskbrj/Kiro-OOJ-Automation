@@ -1,143 +1,132 @@
-# OOJ Web Runner (local, free, no AI)
+# OOJ Web Runner — internals
 
-A one-click local web page that runs the proven OOJ validation pipeline
-(`tools/run_daily.py`) end to end, shows each source filling live, verifies the
-result, and gives you the filled workbook.
+The local web page that drives the pipeline (`tools/run_daily.py`), shows each source
+live, verifies the result, and hosts the two optional ticket-write features
+(Resolve ticket, Post comments). Operator steps: `user-guide.md`.
 
-- **Local only.** The server binds to `127.0.0.1`; it is never on the network.
-- **No cost, no AI.** Python standard library only; no third-party packages, no
-  cloud calls, no LLM anywhere in the run path. Every source-system call happens
-  inside `run_daily.py` exactly as it does from the command line.
-- **Read-only** against Amazon systems. It never posts/resolves tickets and never
-  pushes git.
+Last reviewed: 2026-11-16.
+
+- **Local only.** Binds to `127.0.0.1`; never reachable from the network.
+- **No AI.** No LLM anywhere in the run path.
+- **Reads** Amazon systems for the pipeline. **Writes** to SIM-T only in sections 5 and
+  6, only after the operator ticks a confirmation box and confirms a dialog.
 
 ## Start it
 
-Double-click **`Start OOJ Web.bat`** in the project root, or run:
+Double-click **`Start OOJ Web.bat`**, or `py -3.13 tools\web\server.py --port 8000`.
+The page opens in a separate app-mode Edge/Chrome window. If port 8000 is blocked by
+policy (WinError 10013) the server tries the next candidate and prints the URL.
 
-```
-py -3.13 tools\web\server.py --port 8000
-```
+**Only one server may listen on port 8000.** Two copies can both appear to bind on
+Windows and the page then talks to a stale one. Use the page's **Restart server**
+button, or close every `server.py` process before starting a new one.
 
-It opens `http://127.0.0.1:8000/`. If a port is blocked by machine policy
-(WinError 10013), the server automatically tries the next candidate and prints the
-URL it settled on.
+## Page sections
 
-## Daily flow (steps run 1 → finish, in order)
+| # | Section | What it does |
+|---|---|---|
+| 1 | Midway access | Opens a terminal running `mwinit -o`; polls until the cookie is valid |
+| 2 | Start today's run | ADS approval + partial-download checkboxes, Start run, Stop run |
+| 3 | Progress | 8 cards: tickets, scc, eagle, pnama, dsr, gcrs, polygon, ads; live log |
+| 4 | Result | Verification banner; Download filled workbook |
+| 5 | Resolve ticket | Bulk resolve SIM-T tickets (see `resolve-tickets.md`) |
+| 6 | Post comments (optional) | Upload xlsx → dry run → confirm → post |
 
-1. **Grant Midway access** — click the button once. A terminal window opens running
-   `mwinit -o`; type your PIN there and approve. The page detects the valid session
-   and unlocks Start. You are only asked once per session.
-2. **Start today's run** — optionally tick **Approve ADS upload** (required for a
-   complete, downloadable workbook; leave unticked for a partial run with no
-   download). Click **Start run**.
-3. **Progress** — eight source cards (SIM-T Tickets, SCC, EagleEye, PNAMA, DSR,
-   GCRS, Polygon, ADS) update in real time with live counts, plus a live log and the
-   full enriched table as it fills. The page never shows a previous run's numbers:
-   until you start a run this session the cards stay "pending". **The run pauses
-   after the SIM-T ticket pull**: SCC's automated browser lane is retired (SCC now
-   blocks automated browsing), so the SCC card shows an **"awaiting upload"** badge
-   with a file picker and an **Upload SCC CSV** button. Search the SIM-T TIDs in SCC
-   yourself, export SCC's native CSV, and upload it there — a valid upload is
-   validated against SCC's expected columns and automatically resumes the run from
-   SCC onward; a rejected upload shows the reason and lets you try again.
-4. **Result** — when the run finishes, the page runs the engine's own accuracy gate
-   (all required lanes ok, read-back ok, polygon VERIFY ok). Only then does the
-   **Download** button enable; the workbook is also copied to your Desktop as
-   `OOJ_Process_Filled_<stamp>.xlsx`. If the run was blocked or partial, the banner
-   explains why and download stays disabled.
+## Run phases (controller `_phase`)
 
-## What "100% accurate" means here
+| Phase | Meaning |
+|---|---|
+| `idle` | Nothing started this session |
+| `awaiting_scc_upload` | Phase A (preflight + SIM-T) finished; waiting for the SCC CSV |
+| `scc_uploaded` | Valid upload stored; Phase B about to start |
+| `running` | Phase B (`--resume-dir`) running: SCC load → EagleEye/PNAMA/DSR → GCRS → Polygon → ADS → fill |
+| `scc_stopped` | Operator stopped Phase B; SIM-T data + SCC file kept; rerun or upload new file |
 
-Download is gated on the same publication rules the pipeline enforces itself:
+`SCC_PAUSE_PHASES` in `app.js` = `awaiting_scc_upload`, `scc_uploaded`, `scc_stopped`.
 
-- every required lane succeeded (no failed/skipped required lane),
-- `fill_recalc` and `read_back` both succeeded (row/TID/polygon contracts hold, no
-  stray Excel errors, template remark formula unchanged),
-- the polygon workbook verification returned `verify_ok`.
+## Endpoints
 
-If any of these fail, the workbook is **not** offered for download.
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/`, `/app.js`, `/style.css` | The page |
+| GET | `/preflight` | Midway / Edge-profile readiness |
+| POST | `/midway` | Open the `mwinit -o` terminal |
+| POST | `/run` | Start Phase A (`{"ads_approved", "allow_source_failures"}`) |
+| POST | `/stop` | Stop the whole run (process tree) |
+| GET | `/status` | Run status; includes `scc_phase`, `scc_upload`, `can_stop_after_scc` |
+| POST | `/scc/upload` | Validate + store SCC CSV, then auto-start Phase B |
+| POST | `/scc/stop` | Stop Phase B only; keep SIM-T data and the SCC file |
+| POST | `/scc/rerun` | Rerun Phase B with the same SCC file |
+| GET | `/table`, `/log`, `/download`, `/source-download?name=` | Data and downloads |
+| POST | `/restart` | Stop any pipeline / resolve run, relaunch the server |
+| POST | `/resolve/check` | Parse pasted TT URLs (local only, changes nothing) |
+| POST | `/resolve/start` | LIVE resolve; requires `{"confirmed": true}` |
+| POST | `/resolve/stop` | Stop the resolve run |
+| GET | `/resolve/status`, `/resolve/report-download` | Resolve progress and Excel report |
+| POST | `/post-comments/upload`, `/confirm`, `/retry-failed`, `/stop` | Post comments |
+| GET | `/post-comments/status`, `/post-comments/report-download` | Post comments status/report |
+
+`/status` keys are used by `app.js` and tests: **only add keys, never rename/remove.**
+
+## SCC upload, stop and rerun
+
+- `RunController.upload_scc_csv` accepts a file in phases `awaiting_scc_upload`,
+  `scc_uploaded`, `scc_stopped`; validates `SCC_REQUIRED_COLUMNS`; stores it under
+  `tools/captures/scc_uploads/`; the server then calls `continue_after_scc`.
+- `continue_after_scc` (phases `scc_uploaded` or `scc_stopped`; refuses if a process is
+  running or the file is gone) copies Phase A's `summary.json` to `summary_phase_a.json`
+  once, then spawns `run_daily.py --resume-dir <run> --scc-csv <file>`.
+- `stop_after_scc` (phase `running` only) kills the process tree, moves every run-folder
+  entry except `tech_data.csv`, `tids.txt`, `run.log`, `tickets_pull.log`,
+  `summary_phase_a.json` into `stopped_<HHMMSS>/`, restores `summary.json` from
+  `summary_phase_a.json`, and sets phase `scc_stopped`.
+- The top **Stop run** (`stop_run`) is unchanged: it ends the whole run.
+
+## Download gate ("100% accurate")
+
+Download unlocks only when every required lane succeeded (or partial mode left it blank),
+`fill_recalc` and `read_back` succeeded (row/TID/polygon contracts, no stray Excel
+errors, generated P2 equals the template P2), and the polygon verification returned
+`verify_ok`. The Desktop copy is `Templete_OOJ Process_<Month>_KABIDEBA1_<stamp>.xlsx`
+(`PARTIAL_` before the stamp for partial runs). `DESKTOP_EXPORT_PREFIX` must stay the
+same in `run_controller.py` and `run_daily.py`.
+
+## Concurrency
+
+PNAMA and DSR share one Edge automation profile, so they run one after the other.
+EagleEye (API) runs on a background thread alongside them. GCRS, Polygon and ADS run
+after. Never run two Edge sessions on the shared profile. Resolve ticket uses
+builder-mcp only (no Edge), so it can run while the pipeline runs.
+
+## Local history retention
+
+At every fresh Start (Phase A), `run_daily.wipe_old_runs` (keep window
+`RUN_KEEP_DAYS = 3`):
+
+- deletes run folders in `tools/captures/runs/` older than 3 days (never the current run);
+- deletes every per-source cache file under `tools/captures/<source>/` (fresh-data rule),
+  except `scc_enum_map.json`;
+- deletes Desktop `Templete_OOJ Process_*.xlsx` files older than 3 days; no other
+  Desktop file is touched.
+
+Phase B never wipes. `tools/resolve_runs/` is outside `captures/` and is never wiped.
+At server start/restart `tools/sanitize_captures.py` also clears partial downloads and
+browser scratch.
+
+## Partial download
+
+**Allow partial download if a source fails** (default off): a failed source's sheet is
+left blank, the workbook is still produced and labelled PARTIAL, and the banner lists the
+blank sources. Columns that depend on a blank source show `#N/A` — expected.
+Engine flag: `run_daily.py --allow-source-failures`.
 
 ## Files
 
 - `Start OOJ Web.bat` — launcher.
-- `tools/web/server.py` — stdlib HTTP server + endpoints.
-- `tools/web/run_controller.py` — spawns/monitors `run_daily.py`, parses
-  `run.log`/`summary.json`, enforces the accuracy gate, copies to Desktop.
+- `tools/web/server.py` — HTTP server and routes.
+- `tools/web/run_controller.py` — pipeline supervisor, SCC phases, download gate.
+- `tools/web/resolve_controller.py` — Resolve ticket supervisor + Excel report.
+- `tools/web/post_comments_controller.py` — Post comments supervisor.
 - `tools/web/index.html`, `app.js`, `style.css` — the page.
-- `tests/test_web_controller.py` — gate/parse/copy tests.
-
-## The `/scc/upload` endpoint
-
-`POST /scc/upload` takes the operator's manually-exported SCC CSV (base64-encoded in
-the request body) and hands it to `RunController.upload_scc_csv`, which:
-
-1. Validates the file has the expected columns (`SCC_REQUIRED_COLUMNS` — Tracking ID,
-   State, Destination, Source, Ship Option). A missing/invalid file is rejected with a
-   reason and the run stays paused for another attempt.
-2. On a valid upload, saves it and **immediately spawns Phase B**
-   (`run_daily.py --resume-dir <run> --scc-csv <upload>`) in the same call, so the
-   pipeline resumes automatically — the operator does not click a separate "resume"
-   action.
-3. Returns `{"uploaded": true/false, "reason": ..., "continue": {...}}`; the page uses
-   this to flip the SCC card from "awaiting upload" to a running step.
-
-## Concurrency
-
-PNAMA and DSR each drive the *same* single Edge automation profile, and Chromium
-allows only one process per profile — so those two run **serially** (one after
-another) to avoid a profile collision. SCC is no longer part of this app's own Edge
-automation: it is a manual CSV upload the operator performs in their own browser, so
-it does not compete for the shared profile. EagleEye is a pure in-process API call
-(no browser), so it runs **concurrently** on a background thread alongside the browser
-lanes. GCRS/Polygon and ADS run after those complete. This is the maximum safe
-parallelism; the pipeline never opens two Edge sessions against the shared profile at
-once.
-
-Progress is written incrementally: `run_daily.py` flushes `summary.json` atomically
-before and after every stage, so the page reflects each step as it happens rather than
-only at the end.
-
-## Notes / limits
-
-- The Midway PIN must be typed by you in the terminal window the button opens; the
-  page cannot type it. It polls until the session is valid.
-- Only one run at a time; starting a run while one is active is rejected.
-- The automation Edge profile must be closed before a run (the page tells you if it
-  is open).
-
-## Local history retention (fresh-run wipe)
-
-At the start of every fresh Start (Phase A), `run_daily.wipe_old_runs` deletes **all**
-prior task history from `tools/captures/`, not just old items:
-- every prior run folder under `captures/runs/` (except the run that is starting now),
-- every per-source capture artifact (screenshots, blob downloads, cached polygons)
-  under `captures/<source>/`.
-
-It preserves this run's own directory and `scc_enum_map.json` (the SCC State
-enum ground-truth overlay), and it also prunes old published Desktop exports
-(`OOJ_Process_Filled_*.xlsx` from a previous day, keeping today's). It never touches
-source code, the template, tests, or any other Desktop file. The older
-`run_daily.prune_history` function (a 7-day retention window) still exists in the
-source but is no longer called in the live path — `wipe_old_runs` replaced it.
-
-## Polygon location data
-
-The polygon/jurisdiction check fetches **live** station geometry every run
-(`refresh_polygons=True`) so location checks always use realtime data.
-
-## Partial download when a source fails
-
-The page has a checkbox **"Allow partial download if a source fails"** (default OFF).
-
-- **Off (default):** if any required source fails to fetch, the run blocks and no
-  workbook is produced (as before).
-- **On:** a source that can't fetch is left **blank** (its worksheet is empty) and the
-  workbook is still produced and downloadable, labelled **PARTIAL**. The result banner
-  lists which source(s) are blank, and the Desktop copy is named
-  `OOJ_Process_Filled_PARTIAL_<stamp>.xlsx`.
-
-In partial mode the workbook-producing steps (fill/recalc, read_back, apply_remarks)
-must still succeed for the download to unlock. Columns that depend on a blank source
-will show `#N/A` — that is expected, not an error. Engine flag:
-`run_daily.py --allow-source-failures`.
+- Tests: `tests/test_web_controller.py`, `tests/test_scc_stop_rerun.py`,
+  `tests/test_resolve_tickets.py`, `tests/test_post_comments.py`.

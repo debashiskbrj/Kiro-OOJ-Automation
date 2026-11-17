@@ -262,6 +262,34 @@ pre#pc-log {
 }
 #pc-report-download-btn { margin-top: 10px; }
 
+/* 5. Resolve ticket */
+.rt-input {
+  width: 100%; box-sizing: border-box; margin: 6px 0 10px; padding: 8px;
+  background: #0f1a26; color: inherit; border: 1px solid var(--line); border-radius: 8px;
+  font-family: Consolas, monospace; font-size: 12px; resize: vertical;
+}
+.rt-check { margin: 10px 0; font-size: 13px; }
+.rt-check .rt-invalid { color: var(--warn); }
+.rt-progress { margin-top: 12px; }
+.rt-stats { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
+.rt-stat {
+  flex: 1 1 120px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line);
+  background: #0f1a26;
+}
+.rt-stat .num { font-size: 22px; font-weight: 800; }
+.rt-stat .lbl { font-size: 12px; color: var(--muted); }
+.rt-stat.ok .num { color: #56d364; }
+.rt-stat.skip .num { color: #79c0ff; }
+.rt-stat.fail .num { color: #ff7b72; }
+.rt-stat.left .num { color: #e3b341; }
+.rt-table-wrap { margin-top: 10px; }
+td.rt-res-Resolved { color: #56d364; font-weight: 600; }
+td.rt-res-Failed { color: #ff7b72; font-weight: 600; }
+td.rt-res-Already { color: #79c0ff; }
+#rt-log-details summary { cursor: pointer; user-select: none; margin-top: 10px; }
+pre#rt-log { max-height: 200px; overflow: auto; font-size: 12px; }
+#rt-report-btn { margin-top: 10px; }
+
 /* --- responsive layout ------------------------------------------------- */
 /* Tablet / small laptop: tighten header and padding. */
 @media (max-width: 820px) {

@@ -5,6 +5,70 @@ code added/changed. Details belong in the other docs; this is the timeline.
 
 ---
 
+- **2026-11-17** — FEATURE: **browser sign-in check at Start** (`tools/browser_signin.py`,
+  called in `run_daily.py` Phase A right after preflight). After a laptop restart the
+  automation Edge profile loses its QuickSight sign-in, so the first run's PNAMA sat on an
+  unattended login page and failed. Now Start opens the automation Edge window on the PNAMA
+  then DSR dashboard: already signed in -> closes by itself; login page -> waits up to
+  10 min for PIN + YubiKey, then closes by itself and the run continues. Never fatal
+  (PNAMA/DSR keep their own login wait). `--skip-browser-signin` turns it off. Read-only.
+  Tests: `tests/test_browser_signin.py`.
+
+- **2026-11-16** — FIX (resolve): an exception inside a resolve worker thread no longer
+  kills the worker and silently drops its remaining tickets (the 21:33 run reported only
+  75 of 79 rows). The ticket is logged in `run.log`, reported Failed ("Not processed … see
+  run.log"), and the worker carries on. New test in `tests/test_resolve_tickets.py`.
+  `Docs/resolve-tickets.md` updated from the old one-phase description to the two-phase run.
+
+- **2026-11-16** — DOCS + HOUSEKEEPING: README, user-guide, web-runner and the standing
+  rules (`.kiro/steering/ooj-instructions.md`) rewritten for the current behaviour; new
+  `Docs/resolve-tickets.md` and `Docs/approval-in-comments.md`; stale "read-only / wipe
+  everything / 7-day" statements corrected across Docs. Removed scratch: root `report.xml`,
+  `.pytest_cache/`, `.agents/tasks/`, `tools/captures/_archive/`. The open audit backlog in
+  `.kiro/specs/full-project-bug-audit/` is kept (not yet implemented).
+
+- **2026-11-16** — FEATURE: **5. Resolve ticket** page section. Paste TT URLs (2k+),
+  duplicates removed, invalid entries listed and never resolved; each unique ticket set to
+  status Resolved + closure code Successful via builder-mcp (`update-ticket`), already
+  Resolved/Closed skipped, result verified by reading the status back; 4 parallel workers,
+  retries 2/5/10 s, Stop, live counts, Excel report. New `tools/resolve_tickets_runner.py`,
+  `tools/web/resolve_controller.py`, `/resolve/*` routes, outputs in `tools/resolve_runs/`
+  (gitignored, never wiped). Post comments renumbered to section 6.
+  Tests: `tests/test_resolve_tickets.py` (fake API).
+
+- **2026-11-16** — FEATURE: **Stop after SCC upload + rerun.** SCC card shows
+  "Stop run (keep SIM-T data)" while Phase B runs; stopping moves Phase B outputs into
+  `stopped_<time>/`, restores the Phase A summary and sets phase `scc_stopped`; the card then
+  offers "Rerun with same file" or a new upload. New `/scc/stop`, `/scc/rerun`, status key
+  `can_stop_after_scc`. Top Stop run unchanged. Tests: `tests/test_scc_stop_rerun.py`.
+
+- **2026-11-16** — APPROVAL IN COMMENTS rules (column AI): fixed false "Approved" for
+  "disapproved"/"unapproved" and "approval pending/required/denied/rejected"; added go-ahead
+  phrases (carry on, no objection, fine to …); "continue" removed. Only CRM / Site Lead
+  approvals give `Approved`/`Site clear` (Phonetool job title via ReadInternalWebsites, one
+  lookup per author); anyone else → `Need check manually (<alias>)`. builder-mcp for SIM-T now
+  loads `TicketingReadActions,ReadInternalWebsites`. See `Docs/approval-in-comments.md`.
+
+- **2026-11-16** — RETENTION: fresh-Start clean-up now keeps run folders and Desktop
+  output workbooks for **3 days** (`RUN_KEEP_DAYS = 3`) instead of deleting all prior runs
+  / everything before today; per-source caches are still cleared every Start.
+  Test: `tests/test_wipe_old_runs.py`.
+
+- **2026-10-15** — Output renamed to `Templete_OOJ Process_<Month>_KABIDEBA1_<stamp>.xlsx`;
+  runner opens in a standalone app window; CX Address Check column (AH); Approval in
+  Comments column (AI) first added; column P kept as a traceable formula with the
+  AF→AG→Valid catch-all (see git history for details).
+
+- **2026-10-13** — REMARK FORMULA (column P) REPLACED with the operator's version for
+  all rows. The new formula is saved in the template's Working Sheet P2
+  (`Docs/Templete_OOJ Process_Date_September_KABIDEBA.xltx`, still an array formula; only
+  that cell changed). It compares AF/AG through `IFERROR(AF2,"")` / `IFERROR(AG2,"")`, so a
+  `#N/A` in AF or AG no longer propagates into P. The code no longer wraps P2:
+  `fill_template.extend_working_sheet` now just translates the template's P2 down every row
+  like every other formula column, and refuses to run if P2 lacks `IFERROR(AF2,"")` (stale
+  template guard). `read_back` now requires the generated P2 to EQUAL the template P2
+  (normalized). Tests updated/added (row-759 check against the operator's formula).
+
 - **2026-10-12** — SCC AUTOMATION RETIRED → MANUAL CSV UPLOAD. SCC's site now blocks
   automated browsing, so the automated SCC browser lane was removed: `tools/scc_client.py`
   and `tests/test_scc_retry.py` were **deleted**. The run is now **two-phase with a pause**:

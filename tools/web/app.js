@@ -33,7 +33,9 @@ let lastStatus = {};
 // Phases where Phase A has already exited (no live subprocess) but the run has not
 // finished \u2014 we are simply paused waiting on the operator's SCC upload. tick()'s
 // "run finished" check must not treat this pause as the run being over.
-const SCC_PAUSE_PHASES = ["awaiting_scc_upload", "scc_uploaded"];
+// "scc_stopped" = the operator stopped the run after the SCC upload; SIM-T data and the
+// SCC file are kept, and the SCC card offers "Rerun with same file" or a new upload.
+const SCC_PAUSE_PHASES = ["awaiting_scc_upload", "scc_uploaded", "scc_stopped"];
 
 async function getJSON(url) {
   const res = await fetch(url, { cache: "no-store" });
@@ -143,10 +145,54 @@ async function sccUpload() {
 // The SCC card's file input/button are recreated on every renderSources() call, so
 // bind the click handler once via delegation on the stable #sources container.
 $("sources").addEventListener("click", (event) => {
-  if (event.target && event.target.id === "scc-upload-btn") {
+  const id = event.target && event.target.id;
+  if (id === "scc-upload-btn") {
     sccUpload();
+  } else if (id === "scc-stop-btn") {
+    sccStopAfterUpload();
+  } else if (id === "scc-rerun-btn") {
+    sccRerunSameFile();
   }
 });
+
+// Stop everything after the SCC upload, keeping the SIM-T data and the SCC file.
+async function sccStopAfterUpload() {
+  if (!confirm("Stop the run now?\n\nSIM-T data and your SCC file are kept. " +
+               "You can then rerun the same file or upload a new one.")) {
+    return;
+  }
+  const btn = $("scc-stop-btn");
+  if (btn) btn.disabled = true;
+  const { ok, data } = await postJSON("/scc/stop", {});
+  if (!ok || !data.stopped) {
+    sccUploadMessage = "Could not stop: " + (data.reason || "unknown error");
+    sccUploadOk = false;
+  } else {
+    sccUploadMessage = "Stopped. SIM-T data kept. Rerun with the same file (" +
+      (data.scc_file || "uploaded file") + ") or upload a new SCC CSV.";
+    sccUploadOk = null;
+  }
+  startPolling();
+}
+
+// Rerun the after-SCC stage with the SAME uploaded SCC file.
+async function sccRerunSameFile() {
+  const btn = $("scc-rerun-btn");
+  if (btn) btn.disabled = true;
+  sccUploadMessage = "Rerunning with the same SCC file\u2026";
+  sccUploadOk = null;
+  renderSources(lastStatus || {});
+  const { ok, data } = await postJSON("/scc/rerun", {});
+  if (!ok || !data.started) {
+    sccUploadMessage = "Could not rerun: " + (data.reason || "unknown error");
+    sccUploadOk = false;
+    renderSources(lastStatus || {});
+    return;
+  }
+  sccUploadMessage = "";
+  runActive = true;
+  startPolling();
+}
 
 $("midway-btn").addEventListener("click", async () => {
   $("midway-state").textContent = "Opening the Midway PIN prompt in a terminal window\u2026";
@@ -238,7 +284,8 @@ async function tick() {
 function renderSources(status) {
   const sources = status.sources || {};
   const sccPhase = status.scc_phase;
-  const inSccPause = sccPhase === "awaiting_scc_upload" || sccPhase === "scc_uploaded";
+  const inSccPause = SCC_PAUSE_PHASES.includes(sccPhase);
+  const sccStopped = sccPhase === "scc_stopped";
   const wrap = $("sources");
 
   // Preserve the operator's chosen SCC file across re-renders. renderSources runs on
@@ -278,9 +325,11 @@ function renderSources(status) {
         `<div class="step-head">` +
         `<span class="step-num">${i + 1}</span>` +
         `<span class="name">${SOURCE_LABELS[key] || key}</span>` +
-        `<span class="badge awaiting">awaiting upload</span>` +
+        `<span class="badge awaiting">${sccStopped ? "stopped" : "awaiting upload"}</span>` +
         `</div>` +
-        `<p class="hint">Download the SIM-T TIDs from card 1, search them in SCC, export the CSV, and upload it here.</p>` +
+        (sccStopped
+          ? `<p class="hint">Run stopped by you. SIM-T data is kept. Rerun with the same SCC file, or choose a new SCC CSV and upload it.</p>`
+          : `<p class="hint">Download the SIM-T TIDs from card 1, search them in SCC, export the CSV, and upload it here.</p>`) +
         `<div class="btn-row scc-upload-box" id="scc-upload-row"></div>` +
         messageHtml;
       wrap.appendChild(el);
@@ -302,6 +351,15 @@ function renderSources(status) {
       uploadBtn.disabled = uploading;
       row.appendChild(fileInput);
       row.appendChild(uploadBtn);
+      if (sccStopped) {
+        const upload = status.scc_upload || {};
+        const rerunBtn = document.createElement("button");
+        rerunBtn.id = "scc-rerun-btn";
+        rerunBtn.type = "button";
+        rerunBtn.textContent = "Rerun with same file" + (upload.filename ? " (" + upload.filename + ")" : "");
+        rerunBtn.disabled = !upload.uploaded;
+        row.appendChild(rerunBtn);
+      }
       return;
     }
 
@@ -310,9 +368,14 @@ function renderSources(status) {
       .filter(([, v]) => v !== null && v !== undefined)
       .map(([k, v]) => `${k}: ${v}`)
       .join("\n");
-    const dl = src.downloadable
+    let dl = src.downloadable
       ? `<a class="src-dl" href="/source-download?name=${encodeURIComponent(key)}">\u2913 Download CSV</a>`
       : "";
+    if (key === "scc" && status.can_stop_after_scc) {
+      // Stop everything after the SCC upload; SIM-T data and the SCC file are kept.
+      dl += `<div class="btn-row"><button id="scc-stop-btn" type="button" class="danger">` +
+        `Stop run (keep SIM-T data)</button></div>`;
+    }
     const pct = typeof src.percent === "number" ? src.percent : 0;
     const showBar = src.status === "running" || src.status === "done";
     const bar = showBar
@@ -367,6 +430,13 @@ function renderFinish(status) {
   // Paused after SIM-T awaiting the manual SCC upload: Phase A has exited (so
   // status.running is false and status.stamp is set), but the run is NOT finished.
   // Show the paused state and never fall through to the "partial run complete" banner.
+  if (status.scc_phase === "scc_stopped") {
+    banner.className = "banner warn";
+    banner.textContent = "Stopped by you after the SCC upload. SIM-T data is kept \u2014 " +
+      "rerun with the same SCC file or upload a new one in the SCC card (step 2).";
+    dlBtn.disabled = true;
+    return;
+  }
   if (SCC_PAUSE_PHASES.includes(status.scc_phase)) {
     banner.className = "banner pending";
     banner.textContent = "Paused \u2014 upload SCC's export CSV in the SCC card (step 2) to resume the run.";
@@ -744,6 +814,170 @@ $("pc-retry-btn").addEventListener("click", async () => {
 $("pc-report-download-btn").addEventListener("click", () => {
   window.location.href = "/post-comments/report-download";
 });
+
+// -------------------------------------------------------- 5. Resolve ticket
+// Paste TT URLs -> Check list (local parse, unique IDs) -> confirm -> Resolve tickets
+// (live: status Resolved, closure code Successful) -> live counts -> report download.
+let rtChecked = false;
+let rtPollTimer = null;
+
+function rtRefreshStartButton(status) {
+  const running = status ? !!status.running : false;
+  $("rt-start-btn").disabled = running || !rtChecked || !$("rt-confirm-check").checked;
+  $("rt-stop-btn").disabled = !running;
+  $("rt-check-btn").disabled = running;
+}
+
+$("rt-input").addEventListener("input", () => {
+  // Any edit invalidates the last check.
+  rtChecked = false;
+  $("rt-confirm-check").checked = false;
+  $("rt-check-state").innerHTML = "";
+  rtRefreshStartButton(null);
+});
+$("rt-confirm-check").addEventListener("change", () => rtRefreshStartButton(null));
+$("rt-clear-btn").addEventListener("click", () => {
+  $("rt-input").value = "";
+  $("rt-input").dispatchEvent(new Event("input"));
+});
+
+$("rt-check-btn").addEventListener("click", async () => {
+  const box = $("rt-check-state");
+  box.textContent = "Checking\u2026";
+  const { data } = await postJSON("/resolve/check", { text: $("rt-input").value });
+  const invalidCount = data.invalid_count || 0;
+  const invalidHtml = invalidCount
+    ? `<details class="rt-invalid"><summary>${invalidCount} entr${invalidCount === 1 ? "y is" : "ies are"} not a TT URL / ticket ID and will NOT be resolved</summary><ul>` +
+      (data.invalid || []).map((x) => `<li>${escapeHtml(x)}</li>`).join("") +
+      (invalidCount > (data.invalid || []).length ? "<li>\u2026</li>" : "") + `</ul></details>`
+    : "";
+  if (!data.ok) {
+    rtChecked = false;
+    box.innerHTML = `<p class="rt-invalid">${escapeHtml(data.reason || "Check failed")}</p>` + invalidHtml;
+    rtRefreshStartButton(null);
+    return;
+  }
+  rtChecked = true;
+  $("rt-confirm-check").checked = false;
+  box.innerHTML =
+    `<div class="rt-stats">` +
+    `<div class="rt-stat"><div class="num">${data.pieces}</div><div class="lbl">entries pasted</div></div>` +
+    `<div class="rt-stat skip"><div class="num">${data.duplicates}</div><div class="lbl">duplicates removed</div></div>` +
+    `<div class="rt-stat fail"><div class="num">${invalidCount}</div><div class="lbl">invalid (skipped)</div></div>` +
+    `<div class="rt-stat ok"><div class="num">${data.unique}</div><div class="lbl">unique tickets to resolve</div></div>` +
+    `</div>` +
+    `<p class="hint">First tickets: ${(data.sample || []).map(escapeHtml).join(", ")}${data.unique > 10 ? ", \u2026" : ""}</p>` +
+    invalidHtml;
+  rtRefreshStartButton(null);
+});
+
+$("rt-start-btn").addEventListener("click", async () => {
+  if (!confirm("Resolve these tickets now?\n\nStatus will be set to Resolved with closure code Successful under your login.")) {
+    return;
+  }
+  $("rt-start-btn").disabled = true;
+  $("rt-state").textContent = "Starting\u2026";
+  const { ok, data } = await postJSON("/resolve/start", { confirmed: $("rt-confirm-check").checked });
+  if (!ok || !data.started) {
+    $("rt-state").textContent = "Could not start: " + (data.reason || "unknown");
+    rtRefreshStartButton(null);
+    return;
+  }
+  rtChecked = false;
+  $("rt-confirm-check").checked = false;
+  $("rt-state").textContent = "Resolving " + data.total + " ticket(s)\u2026";
+  rtStartPolling();
+});
+
+$("rt-stop-btn").addEventListener("click", async () => {
+  if (!confirm("Stop resolving? Tickets already resolved stay resolved; the rest are left unchanged.")) {
+    return;
+  }
+  $("rt-stop-btn").disabled = true;
+  const { data } = await postJSON("/resolve/stop", {});
+  $("rt-state").textContent = data.stopped ? "Stopped. The report lists what was done." : "Could not stop: " + (data.reason || "unknown");
+  rtTick();
+});
+
+$("rt-report-btn").addEventListener("click", () => {
+  window.location.href = "/resolve/report-download";
+});
+
+function rtStartPolling() {
+  if (rtPollTimer) clearInterval(rtPollTimer);
+  rtPollTimer = setInterval(rtTick, 2000);
+  rtTick();
+}
+
+async function rtTick() {
+  let status;
+  try {
+    status = await getJSON("/resolve/status");
+  } catch (e) {
+    return;
+  }
+  rtRender(status);
+  rtRefreshStartButton(status);
+  if (!status.running && rtPollTimer) {
+    clearInterval(rtPollTimer);
+    rtPollTimer = null;
+  }
+}
+
+function rtRender(status) {
+  if (!status.has_run) return;
+  const c = status.counts || {};
+  const total = status.total || 0;
+  const done = status.done || 0;
+  const left = Math.max(0, total - done);
+  // Phase 1 (resolving) shows tickets checked; phase 2 (verifying) shows final results.
+  const resolving = status.running && status.phase === "resolving";
+  const shown = resolving ? (status.checked || 0) : done;
+  const pct = total ? Math.round((shown * 100) / total) : 0;
+  const finished = !status.running && (status.finished || status.stopped);
+  $("rt-progress").innerHTML =
+    `<div class="pbar"><div class="pbar-fill ${finished && !status.stopped ? "done" : ""}" style="width:${pct}%"></div>` +
+    `<span class="pbar-label">${resolving ? "Phase 1 " : status.running ? "Phase 2 " : ""}${shown} / ${total} (${pct}%)</span></div>` +
+    `<div class="rt-stats">` +
+    `<div class="rt-stat ok"><div class="num">${c["Resolved"] || 0}</div><div class="lbl">resolved now</div></div>` +
+    `<div class="rt-stat skip"><div class="num">${c["Already resolved"] || 0}</div><div class="lbl">already resolved</div></div>` +
+    `<div class="rt-stat fail"><div class="num">${c["Failed"] || 0}</div><div class="lbl">failed</div></div>` +
+    `<div class="rt-stat left"><div class="num">${left}</div><div class="lbl">${status.running ? "remaining" : "not processed"}</div></div>` +
+    `</div>`;
+  if (status.running && resolving) {
+    $("rt-state").textContent = "Phase 1 of 2 \u2014 resolving: " + (status.checked || 0) + " of " + total +
+      " checked, " + (status.sent || 0) + " resolve sent. Verification starts after this.";
+  } else if (status.running) {
+    $("rt-state").textContent = "Phase 2 of 2 \u2014 verifying in SIM-T: " + done + " of " + total +
+      " confirmed so far (" + (status.to_verify || 0) + " resolved tickets being checked; SIM-T can take up to 2 minutes to update).";
+  } else if (status.stopped) {
+    $("rt-state").textContent = "Stopped by you. " + done + " of " + total + " processed. Download the report below.";
+  } else if (status.finished) {
+    $("rt-state").textContent = "Finished. " + (c["Resolved"] || 0) + " resolved, " + (c["Already resolved"] || 0) +
+      " already resolved, " + (c["Failed"] || 0) + " failed. Download the report below.";
+  }
+  const rows = status.rows || [];
+  const wrap = $("rt-table-wrap");
+  wrap.hidden = rows.length === 0;
+  const cols = ["Ticket ID", "Result", "Status before", "Status after", "Detail", "Time"];
+  wrap.querySelector("thead").innerHTML = "<tr>" + cols.map((h) => `<th>${escapeHtml(h)}</th>`).join("") + "</tr>";
+  wrap.querySelector("tbody").innerHTML = rows.map((r) => {
+    const resClass = "rt-res-" + String(r["Result"] || "").split(" ")[0];
+    return "<tr>" +
+      `<td><a href="${escapeHtml(r["Ticket URL"] || "")}" target="_blank" rel="noopener">${escapeHtml(r["Ticket ID"] || "")}</a></td>` +
+      `<td class="${escapeHtml(resClass)}">${escapeHtml(r["Result"] || "")}</td>` +
+      `<td>${escapeHtml(r["Status before"] || "")}</td>` +
+      `<td>${escapeHtml(r["Status after"] || "")}</td>` +
+      `<td>${escapeHtml(r["Detail"] || "")}</td>` +
+      `<td>${escapeHtml(r["Time"] || "")}</td>` +
+      "</tr>";
+  }).join("");
+  $("rt-log").textContent = (status.log_tail || []).join("\n");
+  $("rt-report-btn").disabled = !status.report_ready;
+}
+
+// On page load, pick up a resolve run that is still going (e.g. after a page refresh).
+rtTick().then(() => { if (!$("rt-stop-btn").disabled) rtStartPolling(); });
 
 // -------------------------------------------------------- boot
 refreshPreflight();

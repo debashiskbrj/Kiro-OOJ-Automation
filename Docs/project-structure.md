@@ -2,92 +2,100 @@
 
 A map of where everything lives, so the project is easy to navigate and run.
 
+Last reviewed: 2026-11-16.
+
 > **Cloning this repo?** It needs Python 3.13 (`py -3.13`); missing packages are
 > installed on first server start by `tools/auto_setup.py`. Override the machine-specific
 > Edge profile path in `tools/ooj_paths.py` with the `OOJ_EDGE_PROFILE` env var rather
-> than editing code. `tools/captures/` and secrets are gitignored, so a fresh clone has
-> no real run data. The README has the full first-run checklist.
+> than editing code. `tools/captures/`, `tools/resolve_runs/` and secrets are gitignored,
+> so a fresh clone has no real run data.
 
 ```
 Kiro OOJ Automation/
 ├── README.md                  Overview + quick start + documentation map
 ├── Start OOJ Web.bat          One-click launcher (starts the local web app on :8000)
 ├── AGENTS.md                  Agent workflow notes (NeuroTrace)
+├── .gitignore                 Keeps run data, secrets, caches and scratch out of git
 │
 ├── Docs/                      All documentation (see the map in README.md)
-│   ├── user-guide.md            How to run it daily (operator)
-│   ├── pipeline-reference.md     Each source/stage: what it does, how it fetches
-│   ├── developer-guide.md        Code layout, how to change things, tests
+│   ├── Templete_OOJ Process_Date_September_KABIDEBA.xltx   THE TEMPLATE (P2 = remark formula)
+│   ├── user-guide.md             Daily steps on the web page (operator)
+│   ├── SOP-OOJ-Automation.md     Standard operating procedure + checklist
 │   ├── troubleshooting.md        Known failures and fixes
-│   ├── remark-rules.md           Working Sheet column-P Remark logic
-│   ├── web-runner.md             Local web app internals, endpoints, retention
-│   ├── polygon-checker.md        Local GCRS polygon/jurisdiction checker
+│   ├── resolve-tickets.md        Section 5: bulk resolve
+│   ├── approval-in-comments.md   Column AI: approval rules (CRM / Site Lead)
+│   ├── remark-rules.md           Column P (Remark) formula logic
 │   ├── report-spec.md            Final report columns
+│   ├── pipeline-reference.md     Each source/stage + data retention
+│   ├── web-runner.md             Web app internals: phases, endpoints, gate
+│   ├── developer-guide.md        Code layout, conventions, tests
+│   ├── polygon-checker.md        GCRS polygon / jurisdiction checker
 │   ├── architecture.md           Design notes
 │   ├── implementation.md         Build history / current state
-│   ├── context.md                Single-source-of-truth working notes + standing rules
+│   ├── context.md                Working notes and background
 │   ├── access-status.md          Per-source access lane status
-│   ├── edge-cases.md             Live log of edge cases learned (#C*, #G*, #A* ...)
-│   ├── changes.md                Live changelog (newest at top)
+│   ├── edge-cases.md             Edge cases learned (#C*, #G*, #A* ...)
+│   ├── PRD-OOJ-Automation.md     Product requirements
+│   ├── changes.md                Changelog (newest at top)
 │   └── project-structure.md      This file
 │
-├── tools/                     All pipeline code (one module per source/stage)
-│   ├── run_daily.py             ORCHESTRATOR — runs the whole pipeline in order
-│   ├── tickets_pull.py          SIM-T tickets → Tech_Data (via builder-mcp)
+├── tools/                     All code (one module per source/stage)
+│   ├── run_daily.py             ORCHESTRATOR — Phase A (SIM-T) / Phase B (--resume-dir)
+│   ├── tickets_pull.py          SIM-T tickets → Tech_Data + Approval in Comments (builder-mcp)
 │   ├── eagleeye_client.py       EagleEye package leg detail (MCP API)
 │   ├── pnama_export.py          PNAMA missort (QuickSight export)
 │   ├── dsr_export.py            DSR Waterfall Zone (QuickSight export)
 │   ├── gcrs_mcscli.py           GCRS/SIW address + geocode (mcscli / Edge fallback)
 │   ├── siw_client.py            Shared SIW transport (mcscli probe → one-way Edge)
-│   ├── polygon_check.py         Station polygon fetch + point-in-polygon engine
-│   ├── tid_polygon_checker.py   Polygon orchestrator + Excel writer/verifier
+│   ├── polygon_check.py         Station polygons + point-in-polygon + CX Address Check
+│   ├── tid_polygon_checker.py   Polygon orchestrator + Excel writer/verifier (also standalone)
 │   ├── ads_run.py               ADS pincode prediction (Streamlit UI driver)
 │   ├── fill_template.py         Fill the .xltx template from all source rows
 │   ├── recalc_excel.ps1         Recalculate the workbook via Excel COM
-│   ├── apply_remarks.py         Rewrite Working Sheet Remark (column P)
-│   ├── remark_rules.py          The Remark decision logic
-│   ├── edge_preflight.py        Edge automation-profile checks (read-only)
+│   ├── resolve_tickets_runner.py  Bulk resolve SIM-T tickets (section 5)
+│   ├── post_comments_runner.py  Post comments to tickets (section 6)
+│   ├── auto_setup.py            Install missing Python packages at server start
+│   ├── sanitize_captures.py     Clear partial downloads / browser scratch at server start
+│   ├── ooj_paths.py             Machine paths (OOJ_EDGE_PROFILE)
+│   ├── edge_preflight.py        Edge automation-profile checks
 │   ├── browser_blob_capture.py  In-page CSV blob capture helper (PNAMA/DSR QuickSight)
+│   ├── apply_remarks.py         Standalone CLI only (column P is now a live formula)
+│   ├── remark_rules.py          Historical Remark rules (used by apply_remarks + tests)
 │   │
 │   ├── web/                    The local one-click web runner
-│   │   ├── server.py              Stdlib HTTP server (127.0.0.1)
-│   │   ├── run_controller.py      Supervises run_daily.py; parses status for the page
-│   │   ├── index.html             The page
-│   │   ├── app.js                 Progress cards (numbered steps), live log, download
+│   │   ├── server.py              HTTP server (127.0.0.1) + routes
+│   │   ├── run_controller.py      Pipeline supervisor, SCC phases, stop/rerun, download gate
+│   │   ├── resolve_controller.py  Resolve ticket supervisor + Excel report
+│   │   ├── post_comments_controller.py  Post comments supervisor
+│   │   ├── index.html             The page (sections 1–6)
+│   │   ├── app.js                 Page logic
 │   │   └── style.css              Styling
 │   │
-│   └── captures/              RUNTIME OUTPUT ONLY (wiped at the start of every fresh run)
-│       ├── runs/                One dated folder per pipeline run (the real output)
-│       ├── tickets/ scc/ eagle/ pnama/ dsr/ polygons/ polygon_local/ ads/
-│       │                        Per-source artifacts: CSVs, screenshots, downloads
-│       └── _archive/           Old one-off dev/debug scratch (safe to delete; wiped too)
+│   ├── captures/              RUNTIME OUTPUT ONLY (gitignored)
+│   │   ├── runs/                One folder per run (kept 3 days)
+│   │   ├── scc_uploads/         Uploaded SCC CSVs
+│   │   └── tickets/ eagle/ pnama/ dsr/ polygons/ polygon_local/ ads/ post_comments/
+│   │                            Per-source caches — cleared at every fresh Start
+│   └── resolve_runs/          Resolve ticket outputs + reports (never cleaned; gitignored)
 │
-├── tests/                     Offline test suite (py -3.13 -m pytest tests -q)
-│   ├── test_polygon_workflow.py
-│   ├── test_remark_rules.py
-│   └── test_web_controller.py
+├── tests/                     Offline test suite (py -3.13 -m pytest tests -q) — 123 tests
 │
-└── .kiro/steering/            Standing instructions for the agent
-    └── ooj-instructions.md
+├── .kiro/steering/ooj-instructions.md   Standing operator rules for AI assistants
+├── .kiro/specs/full-project-bug-audit/  Open audit backlog (19 suspected defects, not yet fixed)
+└── .agents/                   Assistant scratch (gitignored). Keep: template-backup/ (template
+                               before the P2 change), p-formula-row759.txt (used by a test).
 ```
 
 ## Where things go
 
 - **New pipeline logic** → a module in `tools/`, wired into `tools/run_daily.py`.
-- **Web page changes** → `tools/web/` (`app.js`, `style.css`, `index.html`,
-  `run_controller.py`). Restart the server after editing.
-- **Docs** → `Docs/`, and add a row to the map in `README.md`.
-- **Anything under `tools/captures/`** is disposable runtime output. Never store source
-  code or docs there; it is wiped at the start of every fresh run (not time-based).
+- **Web page changes** → `tools/web/`. Restart the server after editing (never mid-run).
+- **Docs** → `Docs/`, add a row to the map in `README.md`, and a line in `changes.md`.
+- **Anything under `tools/captures/`** is disposable runtime output. Never store code or
+  docs there.
 
 ## The run, in order
 
-SIM-T tickets → **pause for a manual SCC CSV upload** → SCC → EagleEye → PNAMA → DSR →
-GCRS → Polygon → ADS → fill template → Excel recalc → verify (read-back) → apply Remark
-rules → download.
-
-The run pulls SIM-T tickets, then stops (Phase A) so the operator can search those TIDs
-in SCC by hand, export the CSV, and upload it into the SCC progress card. A valid upload
-auto-resumes the run (Phase B) from SCC onward. SCC's rows produce the genuine/correct
-TID set that GCRS, Polygon, and ADS then use. Per-stage detail is in
-`Docs/pipeline-reference.md`.
+SIM-T tickets (+ approval scan) → **pause for a manual SCC CSV upload** → SCC → EagleEye
+(parallel) + PNAMA → DSR → GCRS → Polygon → ADS → fill template → Excel recalc →
+verify (read-back) → download. Details: `pipeline-reference.md`.

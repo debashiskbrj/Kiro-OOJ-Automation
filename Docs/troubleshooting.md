@@ -110,6 +110,59 @@ line to see which stage and what it's doing. Use **Stop run** to abort, fix the 
 and start again.
 
 **History piling up**
-It doesn't — `tools/captures/` is wiped at the start of every fresh run (all prior run
-folders and per-source artifacts, not just old ones), and old Desktop export workbooks
-from a previous day are pruned too.
+It doesn't. Each fresh Start deletes run folders and Desktop output workbooks older than
+3 days and clears every per-source cache. Only `tools/resolve_runs/` (resolve reports)
+grows; delete old folders there by hand if needed.
+
+**Page shows old buttons, wrong state, or a section is missing**
+1. Press **Ctrl+F5**.
+2. If still wrong and nothing is running, click **Restart server**.
+3. Two server copies on port 8000 cause a stale page. Restart server handles it; if not,
+   close every `server.py` (Task Manager → python.exe) and run `Start OOJ Web.bat` once.
+   A restart discards a run paused at SCC — click Start run again.
+
+---
+
+## SCC stop / rerun
+
+**No red "Stop run (keep SIM-T data)" button**
+It only appears after the SCC upload, while the later steps are running. Before the
+upload the SCC card shows only Choose File + Upload SCC CSV.
+
+**"Rerun with same file" is greyed out or fails**
+The uploaded file is no longer on disk (`tools/captures/scc_uploads/`). Choose the CSV
+again and click Upload SCC CSV.
+
+---
+
+## Approval in Comments (column AI)
+
+**Many "Need check manually (…)" values**
+Either the approvers really are not CRM / Site Lead, or Phonetool lookups failed. Check
+the log line `approval authors: N looked up on Phonetool, M CRM/Site Lead, K lookup(s)
+failed`. Failures usually mean Midway expired during the SIM-T step — run `mwinit -o` and
+start again. Rules: `approval-in-comments.md`.
+
+**Column AI blank for a ticket that was approved**
+The phrase was blocked by a nearby negation word (e.g. "No issue, approved") or the
+ticket's comments could not be read. Check the ticket by hand.
+
+---
+
+## Resolve ticket (section 5)
+
+**Resolve tickets button stays disabled**
+Click **Check list** first (any edit to the box clears the check), then tick the
+confirmation box.
+
+**Every ticket "Failed — builder-mcp is not available"**
+Midway expired. Run `mwinit -o` (Grant Midway access) and resolve the same list again —
+already-resolved tickets are skipped.
+
+**Some tickets "Failed"**
+The Detail column has the SIM-T error (no permission, ticket not found, throttling).
+Paste only the failed ticket URLs from the report and run again.
+
+**"Status after update is …" (not Resolved)**
+SIM-T accepted the call but the status did not change (e.g. a ticket workflow blocks
+resolving). Resolve that ticket by hand in SIM-T.

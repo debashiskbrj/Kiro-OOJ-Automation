@@ -10,7 +10,11 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
+import re
+
 import openpyxl
+from openpyxl.formula.translate import Translator
+from openpyxl.worksheet.formula import ArrayFormula
 
 import edge_preflight
 import fill_template
@@ -20,6 +24,74 @@ import run_daily
 import siw_client
 import tid_polygon_checker
 from siw_client import SiwReply
+
+# Operator's exact remark formula written for row 759 (gitignored; tests skip if absent).
+P_FORMULA_ROW759 = ROOT / ".agents" / "p-formula-row759.txt"
+
+# Literals that occur once per embedded copy of the inner remark formula (3 copies).
+_P_INNER_LITERALS = (
+    '"Not Valid - OOR"',
+    '"Not Valid - In transit DS-DS"',
+    '"Invalid - Already RTOed"',
+    "\"Not Valid - Doesn't belong to SWA\"",
+    '"Invalid - Address Pin-Code Correct - LM to Reattempt"',
+    'SEARCH("swa"',
+    '{"GCTD","HYT2","BOMC"}',
+)
+
+
+def _norm_formula(text: str | None) -> str:
+    """Same normalization read_back uses: whitespace, '_xlfn.' and leading '=' dropped."""
+    return re.sub(r"\s+", "", text or "").replace("_xlfn.", "").lstrip("=")
+
+
+def _template_p2():
+    workbook = openpyxl.load_workbook(fill_template.TEMPLATE, data_only=False)
+    try:
+        return workbook[fill_template.SHEET_WORK]["P2"].value
+    finally:
+        workbook.close()
+
+
+def _translate(text: str, row: int) -> str:
+    formula = text if text.startswith("=") else "=" + text
+    return Translator(formula, origin="P2").translate_formula(f"P{row}")
+
+
+def _string_literals(text: str) -> list[str]:
+    return re.findall(r'"[^"]*"', text)
+
+
+def _row_refs(text: str, row: int) -> list[str]:
+    """Cell references to ``row`` outside string literals."""
+    code = re.sub(r'"[^"]*"', '""', text)
+    return re.findall(rf"(?<![A-Za-z0-9_.])\$?[A-Z]{{1,3}}\$?{row}(?![0-9])", code)
+
+
+def _synthetic_tech_and_polygon(count: int):
+    tech_rows, polygon_rows = [], []
+    for index in range(count):
+        tid = f"{100000000000 + index}"
+        station = f"ST{index % 7}"
+        tech_rows.append({
+            "Sl": index,
+            "case_id": f"case-{index}",
+            "createdAt": None,
+            "lastUpdatedAt": None,
+            "station_code": station,
+            "zone": "",
+            "impacted_tracking_ids": tid,
+            "attachments": "",
+            "status": "Assigned",
+            "IssueUrl": "",
+            "ShortId": f"P{index}",
+        })
+        polygon_rows.append({
+            "Tracking ID": tid,
+            "Station": station,
+            "GCRS Status": polygon_check.INSIDE_TEXT if index % 2 else polygon_check.OUTSIDE_TEXT,
+        })
+    return tech_rows, polygon_rows
 
 
 class FakeSiwSession:
@@ -549,34 +621,160 @@ class TemplateIntegrationTests(unittest.TestCase):
                 self.assertEqual(polygon_check.INSIDE_TEXT, sheet["AG2"].value)
                 self.assertEqual(polygon_check.OUTSIDE_TEXT, sheet["AG3"].value)
 
-                # Column P stays a VISIBLE combined formula (not a flattened literal) that
-                # embeds the template body plus the ISNA(J)/LM-to-reattempt (AF->AG->Valid)
-                # finishing logic, and translates down per row (P3 references row-3 cells).
+                # Column P stays a VISIBLE formula (not a flattened literal): the template's
+                # P2 carries the operator's complete remark formula and is translated down
+                # unchanged (read_back's equality contract), keeping its ArrayFormula kind.
+                tpl_p2 = _template_p2()
                 p2 = sheet["P2"].value
-                p2_text = getattr(p2, "text", p2)
-                self.assertIsInstance(p2_text, str)
+                self.assertIsInstance(p2, ArrayFormula)
+                self.assertEqual("P2", p2.ref)
+                p2_text = p2.text
                 self.assertTrue(p2_text.startswith("="))
+                self.assertEqual(_norm_formula(tpl_p2.text), _norm_formula(p2_text))
                 self.assertIn("ISNA(J2)", p2_text)
-                self.assertIn("Invalid- Incorrect TID / TID Not Found", p2_text)
-                self.assertIn("lm to reattempt", p2_text.lower())
-                self.assertIn("AF2", p2_text)
-                self.assertIn("AG2", p2_text)
-                p3_text = getattr(sheet["P3"].value, "text", sheet["P3"].value)
-                self.assertIn("ISNA(J3)", p3_text)   # translated to row 3
+                self.assertIn('IFERROR(AF2,"")', p2_text)
+                self.assertIn('IFERROR(AG2,"")', p2_text)
+                for literal in _P_INNER_LITERALS:
+                    self.assertEqual(3, p2_text.count(literal), literal)
+                self.assertLess(len(p2_text), 8192)
 
-                # read_back's containment contract: the template P2 body (sans leading "=")
-                # must appear inside the generated P2.
-                import re as _re
-                norm = lambda s: _re.sub(r"\s+", "", s or "").replace("_xlfn.", "")
-                tpl = openpyxl.load_workbook(fill_template.TEMPLATE, data_only=False)
-                try:
-                    tpl_p2 = getattr(tpl[fill_template.SHEET_WORK]["P2"].value, "text", "")
-                finally:
-                    tpl.close()
-                self.assertIn(norm(tpl_p2).lstrip("="), norm(p2_text))
+                # P3 is the same formula translated to row 3: every cell ref shifts and
+                # no row-2 reference survives; string literals are untouched.
+                p3 = sheet["P3"].value
+                self.assertIsInstance(p3, ArrayFormula)
+                self.assertEqual("P3", p3.ref)
+                p3_text = p3.text
+                for col in ("J", "AF", "AG", "V", "S", "E", "O", "N", "R"):
+                    self.assertIn(f"{col}3", p3_text)
+                self.assertEqual([], _row_refs(p3_text, 2))
+                self.assertEqual(_string_literals(p2_text), _string_literals(p3_text))
+                self.assertIn('"HYT2"', p3_text)
+                self.assertIn("A.in", p3_text)
+                self.assertEqual(
+                    _norm_formula(_translate(tpl_p2.text, 3)), _norm_formula(p3_text)
+                )
 
                 # The new CX Address Check column header is stamped at AH1.
                 self.assertEqual("CX Address Check", sheet["AH1"].value)
+            finally:
+                workbook.close()
+
+    def test_template_p2_is_the_current_remark_formula(self):
+        """Guards against a stale/reverted template: P2 must carry the operator's
+        IFERROR-wrapped AF/AG comparisons as an array formula."""
+        p2 = _template_p2()
+        self.assertIsInstance(p2, ArrayFormula)
+        self.assertIn('IFERROR(AF2,"")', p2.text)
+        self.assertIn('IFERROR(AG2,"")', p2.text)
+        self.assertIn("ISNA(J2)", p2.text)
+
+    def test_stale_template_p2_is_rejected(self):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet["P2"] = ArrayFormula(ref="P2", text='=IF(AF2="x",AF2,"Valid")')
+        with self.assertRaises(RuntimeError):
+            fill_template.extend_working_sheet(sheet, 1)
+
+    def test_p_formula_translated_to_every_row_of_large_fill(self):
+        """~760 synthetic rows through the REAL template: P759 equals the template P2
+        translated to row 759 and (when present) the operator's exact row-759 formula."""
+        tech_rows, polygon_rows = _synthetic_tech_and_polygon(760)
+        tpl_p2 = _template_p2()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "working.xlsx"
+            fill_template.fill(
+                fill_template.TEMPLATE,
+                output,
+                tech_rows,
+                [],
+                [],
+                [],
+                [],
+                [],
+                polygon_rows=polygon_rows,
+            )
+            workbook = openpyxl.load_workbook(output, data_only=False)
+            try:
+                sheet = workbook[fill_template.SHEET_WORK]
+                self.assertEqual(35, sheet.max_column)
+                for row in (2, 759, 761):
+                    cell = sheet[f"P{row}"].value
+                    self.assertIsInstance(cell, ArrayFormula, row)
+                    self.assertEqual(f"P{row}", cell.ref)
+                    self.assertEqual(
+                        _norm_formula(_translate(tpl_p2.text, row)), _norm_formula(cell.text), row
+                    )
+                    self.assertLess(len(cell.text), 8192, row)
+                    self.assertEqual([], _row_refs(cell.text, 2) if row != 2 else [])
+                p759 = sheet["P759"].value.text
+                self.assertIn("ISNA(J759)", p759)
+                self.assertIn('IFERROR(AF759,"")', p759)
+                self.assertIn('IFERROR(AG759,"")', p759)
+                self.assertIsNone(sheet["P762"].value)
+                self.assertEqual(polygon_check.INSIDE_TEXT, sheet["AG759"].value)  # index 757 odd
+            finally:
+                workbook.close()
+        if not P_FORMULA_ROW759.exists():
+            self.skipTest("operator formula file .agents/p-formula-row759.txt not present")
+        operator = P_FORMULA_ROW759.read_text(encoding="utf-8")
+        self.assertEqual(_norm_formula(operator), _norm_formula(p759))
+
+    def test_approval_in_comments_written_to_ai_column(self):
+        """AI (new SIM-T column) carries each tech row's approval_in_comments as a
+        literal, without touching CX (AH) or polygon (AG), and Tech_Data L is populated
+        while its L1 header is NOT renamed."""
+        tech_rows = [
+            {
+                "Sl": index,
+                "case_id": f"case-{index}",
+                "createdAt": None,
+                "lastUpdatedAt": None,
+                "station_code": station,
+                "zone": "",
+                "impacted_tracking_ids": "123456789012",
+                "attachments": "",
+                "status": "Assigned",
+                "IssueUrl": "",
+                "ShortId": f"P{index}",
+                "approval_in_comments": approval,
+            }
+            for index, (station, approval) in enumerate(
+                (("ST1", "Approved"), ("ST2", "Site clear"))
+            )
+        ]
+        polygon_rows = [
+            {"Tracking ID": "123456789012", "Station": "ST1", "GCRS Status": polygon_check.INSIDE_TEXT},
+            {"Tracking ID": "123456789012", "Station": "ST2", "GCRS Status": polygon_check.OUTSIDE_TEXT},
+        ]
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "working.xlsx"
+            fill_template.fill(
+                fill_template.TEMPLATE,
+                output,
+                tech_rows,
+                [],
+                [],
+                [],
+                [],
+                [],
+                polygon_rows=polygon_rows,
+            )
+            workbook = openpyxl.load_workbook(output, data_only=False)
+            try:
+                sheet = workbook[fill_template.SHEET_WORK]
+                # New AI column: header + per-row literals.
+                self.assertEqual("Approval in Comments", sheet["AI1"].value)
+                self.assertEqual("Approved", sheet["AI2"].value)
+                self.assertEqual("Site clear", sheet["AI3"].value)
+                # Adjacent columns unchanged.
+                self.assertEqual("CX Address Check", sheet["AH1"].value)
+                self.assertEqual(polygon_check.INSIDE_TEXT, sheet["AG2"].value)
+                self.assertEqual(polygon_check.OUTSIDE_TEXT, sheet["AG3"].value)
+                # Tech_Data column L carries the approval value; L1 header not renamed.
+                tech = workbook[fill_template.SHEET_TECH]
+                self.assertEqual("Put the Quip data ", tech["L1"].value)
+                self.assertEqual("Approved", tech["L2"].value)
+                self.assertEqual("Site clear", tech["L3"].value)
             finally:
                 workbook.close()
 

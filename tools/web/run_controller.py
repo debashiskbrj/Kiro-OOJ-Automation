@@ -51,6 +51,12 @@ SOURCE_CSV = {
 }
 
 
+# Stop-after-SCC (operator feature): Phase A's own files, kept in the run folder when the
+# operator stops Phase B so a rerun reuses the same SIM-T pull. Everything else Phase B
+# wrote is moved into a stopped_<time>/ subfolder.
+PHASE_A_SUMMARY = "summary_phase_a.json"
+PHASE_A_FILES = {"tech_data.csv", "tids.txt", "run.log", "tickets_pull.log", PHASE_A_SUMMARY}
+
 # Required columns in a manually-uploaded SCC export CSV (same shape the retired
 # automated SCC lane used to produce — see tools/run_daily.py::load_scc_csv).
 SCC_REQUIRED_COLUMNS = ["Tracking ID", "State", "Destination", "Source", "Ship Option"]
@@ -123,16 +129,35 @@ def edge_profile_status() -> dict:
     return edge_preflight.status()
 
 
+# The checklist launches a headless Edge (Playwright) to probe the browser install. The
+# page polls /preflight every few seconds and does not display the checklist, so the
+# result is cached instead of starting a browser on every poll.
+_CHECKLIST_TTL_SECONDS = 600
+_checklist_cache: dict = {"at": 0.0, "value": None}
+
+
 def _environment_checklist_safe() -> dict:
     """Read-only environment checklist for the page. Fully wrapped so a probe failure
-    can never break ``preflight_state``; on error returns an empty, not-ok checklist."""
+    can never break ``preflight_state``; on error returns an empty, not-ok checklist.
+    Cached for ``_CHECKLIST_TTL_SECONDS``."""
+    cached = _checklist_cache["value"]
+    if cached is not None and time.time() - _checklist_cache["at"] < _CHECKLIST_TTL_SECONDS:
+        return cached
     try:
         sys.path.insert(0, str(TOOLS))
         import auto_setup  # noqa: E402  (path set up above)
 
-        return auto_setup.environment_checklist()
+        value = auto_setup.environment_checklist()
     except Exception as exc:
-        return {"all_ok": False, "items": [], "error": f"{type(exc).__name__}: {exc}"}
+        value = {"all_ok": False, "items": [], "error": f"{type(exc).__name__}: {exc}"}
+    _checklist_cache.update(at=time.time(), value=value)
+    return value
+
+
+# Background processes started by the web server must never open a console window
+# (their output is captured into the run logs). Windows that SHOULD be visible —
+# the Midway PIN terminal and the Edge browser windows — are unaffected.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def preflight_state() -> dict:
@@ -256,7 +281,7 @@ class RunController:
             if (
                 self.is_running()
                 or self._resolve_run_dir() is None
-                or self._phase not in ("awaiting_scc_upload", "scc_uploaded")
+                or self._phase not in ("awaiting_scc_upload", "scc_uploaded", "scc_stopped")
             ):
                 return {
                     "uploaded": False,
@@ -336,7 +361,7 @@ class RunController:
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
-                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | NO_WINDOW,
             )
             self._stopped = False
             self._phase = "awaiting_scc_upload"
@@ -351,11 +376,25 @@ class RunController:
         exactly as start_run does.
         """
         with self._lock:
-            if self._phase != "scc_uploaded":
+            # "scc_stopped" = the operator stopped a previous Phase B (stop_after_scc) and
+            # now reruns it with the SAME uploaded file.
+            if self._phase not in ("scc_uploaded", "scc_stopped"):
                 return {"started": False, "reason": "No validated SCC upload yet"}
+            if self.is_running():
+                return {"started": False, "reason": "A run is already in progress"}
             run_dir = self._resolve_run_dir()
             if run_dir is None or self._scc_upload_path is None:
                 return {"started": False, "reason": "Run directory or SCC upload path not resolved"}
+            if not self._scc_upload_path.exists():
+                return {"started": False, "reason": "The uploaded SCC file is no longer on disk; upload it again"}
+            # Keep a copy of Phase A's summary (SIM-T done) so a later stop_after_scc can
+            # restore the paused-after-SIM-T view. Phase B overwrites summary.json.
+            phase_a_copy = run_dir / PHASE_A_SUMMARY
+            if not phase_a_copy.exists() and (run_dir / "summary.json").exists():
+                try:
+                    shutil.copy2(run_dir / "summary.json", phase_a_copy)
+                except OSError:
+                    pass
 
             cmd = [
                 sys.executable, "-X", "utf8", str(RUN_DAILY),
@@ -372,13 +411,36 @@ class RunController:
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
-                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | NO_WINDOW,
             )
             self._stopped = False
             self._phase = "running"
             self._reader = threading.Thread(target=self._drain_stdout, daemon=True)
             self._reader.start()
             return {"started": True}
+
+    def _kill_tree(self) -> str | None:
+        """Kill the active subprocess and its whole tree. Returns an error text or None."""
+        pid = self._proc.pid
+        try:
+            if os.name == "nt":
+                # The run spawns PNAMA/DSR browser subprocesses; /T kills the tree.
+                subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/T", "/F"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    creationflags=NO_WINDOW,
+                )
+            else:
+                self._proc.terminate()
+        except Exception as exc:
+            return f"could not stop run: {exc}"
+        try:
+            self._proc.wait(timeout=15)
+        except Exception:
+            pass
+        return None
 
     def stop_run(self) -> dict:
         """Abort the active run and its whole process tree (browser workers included)."""
@@ -389,26 +451,32 @@ class RunController:
                 # so Start is offered again.
                 self._phase = "idle"
                 return {"stopped": False, "reason": "No run is in progress"}
-            pid = self._proc.pid
-            try:
-                if os.name == "nt":
-                    # The run spawns SCC/PNAMA/DSR browser subprocesses; /T kills the tree.
-                    subprocess.run(
-                        ["taskkill", "/PID", str(pid), "/T", "/F"],
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                    )
-                else:
-                    self._proc.terminate()
-            except Exception as exc:
-                return {"stopped": False, "reason": f"could not stop run: {exc}"}
-            try:
-                self._proc.wait(timeout=15)
-            except Exception:
-                pass
+            error = self._kill_tree()
+            if error:
+                return {"stopped": False, "reason": error}
             self._stopped = True
             return {"stopped": True}
+
+    def stop_after_scc(self) -> dict:
+        """Stop Phase B (everything after the SCC upload) but KEEP the SIM-T data and the
+        uploaded SCC file, so the operator can rerun the same file or upload a new one.
+
+        Phase B's partial outputs are moved (not deleted) into ``stopped_<time>/`` inside
+        the run folder, and Phase A's summary is restored, so the rerun starts clean and
+        no stale per-source CSV is offered for download.
+        """
+        with self._lock:
+            if self._phase != "running" or not self.is_running():
+                return {"stopped": False, "reason": "The run is not in the after-SCC stage"}
+            error = self._kill_tree()
+            if error:
+                return {"stopped": False, "reason": error}
+            run_dir = self._resolve_run_dir()
+            archived = _archive_phase_b(run_dir) if run_dir else None
+            self._phase = "scc_stopped"
+            self._stopped = False
+            return {"stopped": True, "archived_to": archived,
+                    "scc_file": self._scc_upload_path.name if self._scc_upload_path else None}
 
     def _drain_stdout(self) -> None:
         """Capture the RUN_DIR pointer line, then keep the pipe from filling."""
@@ -464,6 +532,8 @@ class RunController:
             "scc_upload": self.scc_upload_status(),
             "scc_phase": self._phase,
             "scc_validation": self._scc_validation,
+            # Stop-after-SCC button: offered only while Phase B (after the upload) runs.
+            "can_stop_after_scc": self._phase == "running" and running,
         }
         if not run_dir:
             return status
@@ -503,6 +573,38 @@ class RunController:
 
 
 # ------------------------------------------------------------------- helpers
+def _archive_phase_b(run_dir: Path) -> str | None:
+    """Move Phase B's outputs out of the run folder into ``stopped_<time>/`` and restore
+    Phase A's summary. Phase A inputs (SIM-T data, TIDs, logs) stay in place. Never raises;
+    a locked file is simply left where it is."""
+    try:
+        target = run_dir / f"stopped_{datetime.now().strftime('%H%M%S')}"
+        target.mkdir(exist_ok=True)
+        for entry in list(run_dir.iterdir()):
+            if entry.name in PHASE_A_FILES or entry.name.startswith("stopped_"):
+                continue
+            try:
+                shutil.move(str(entry), str(target / entry.name))
+            except OSError:
+                pass
+        phase_a = run_dir / PHASE_A_SUMMARY
+        if phase_a.exists():
+            try:
+                shutil.copy2(phase_a, run_dir / "summary.json")
+            except OSError:
+                pass
+        try:
+            with open(run_dir / "run.log", "a", encoding="utf-8") as fh:
+                fh.write(f"[{datetime.now():%H:%M:%S}] === Stopped by operator after SCC upload. "
+                         f"SIM-T data kept; partial outputs moved to {target.name}. "
+                         "Rerun with the same SCC file or upload a new one.\n")
+        except OSError:
+            pass
+        return target.name
+    except Exception:
+        return None
+
+
 def _read_summary(run_dir: Path) -> dict | None:
     path = run_dir / "summary.json"
     if not path.exists():

@@ -1,15 +1,38 @@
 # Working Sheet Remark (column P) rules
 
-After the workbook is filled and recalculated, column **P ("Remark")** is rewritten
-from its template formula to a final literal value, driven by columns AF, AD and AG.
-This runs automatically in every pipeline run as the `apply_remarks` stage (after
-`fill_recalc` and `read_back`), so the downloaded workbook already has the corrected P.
+Last reviewed: 2026-11-16.
+
+## How P works today (live formula)
+
+Column **P ("Remark")** stays a **visible formula** in the delivered workbook, so the
+operator can trace every remark in the formula bar. The template's Working Sheet P2
+(`Docs/Templete_OOJ Process_Date_September_KABIDEBA.xltx`, an array formula) carries the
+operator's complete remark formula:
+
+- `ISNA(J2)` → `Invalid- Incorrect TID / TID Not Found`;
+- an inner result containing "LM to reattempt", or an inner `#N/A` → AF verdict
+  (the two named transfer verdicts) → else AG `Invalid - It is Inside Jurisdiction as per
+  GCRS Tool` → else `Valid`; AF/AG are read through `IFERROR(AF2,"")` / `IFERROR(AG2,"")`
+  so their `#N/A` never reaches P;
+- otherwise the inner formula's own value (Delivered / OOR / DS-DS / RTO / SWA /
+  pin-code checks).
+
+The code never wraps or rebuilds it: `fill_template.extend_working_sheet` translates P2
+down to every row and **refuses to run if P2 lacks `IFERROR(AF2,"")`** (stale-template
+guard); `run_daily.read_back` requires the generated P2 to equal the template P2. **To
+change a remark rule, edit P2 in the template** and run the tests.
+
+## Historical rules (`remark_rules.py`, standalone CLI only)
+
+The section below describes the older Python rules that used to rewrite P to literal
+values (the `apply_remarks` stage). That stage is **no longer part of the run**; the code
+is kept only as a standalone tool and for its tests.
 
 ## Columns (Working Sheet, verified against the template)
 
 | Col | # | Header | Role |
 |-----|---|--------|------|
-| P  | 16 | Remark | output (was a formula, becomes a literal) |
+| P  | 16 | Remark | output (live formula from template P2) |
 | AD | 30 | Old shipment delivered by Station | station code, `0`, or `#N/A` |
 | AF | 32 | Station Transfer Validation | max 4 distinct verdicts |
 | AG | 33 | GCRS Agent Space | polygon status |
@@ -47,11 +70,11 @@ This runs automatically in every pipeline run as the `apply_remarks` stage (afte
 
 ## Files
 
-- `tools/remark_rules.py` — pure decision logic (`decide_remark`, `apply_to_worksheet`).
-- `tools/apply_remarks.py` — applies the rules to a recalculated workbook (CLI + the
-  `apply_to_file` used by the pipeline). Run manually with:
+- Live path: the template P2 formula, `tools/fill_template.py::extend_working_sheet`,
+  `tools/run_daily.py::read_back` (P2 equality check).
+- `tools/remark_rules.py` — historical decision logic (`decide_remark`, `apply_to_worksheet`).
+- `tools/apply_remarks.py` — standalone CLI only (not called by the pipeline):
   `py -3.13 tools\apply_remarks.py "path\to\workbook.xlsx"`
-- `tools/run_daily.py` — `finalize_remarks` stage wires it into every run.
 
 ## Column removal is disabled (all columns retained)
 
