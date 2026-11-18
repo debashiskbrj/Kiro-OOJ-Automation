@@ -8,6 +8,8 @@ Each writer targets one worksheet of the template and mirrors the manual paste:
   GCRS_Data           <- GCRS export from row 3 (A..I), K/L concat formulas per row
   ADS Predicted Data  <- ADS csv (A blank | index | TRACKINGID | ADS | pincode | proba)
   GCRS Agentspaces    <- polygon-check export (Tracking ID | Station | GCRS Status), optional
+  DSR Data            <- full DSR Raw data export, aligned to the sheet's header row
+                         (Working Sheet I = Zone, looked up by TID from this sheet)
 Then the Working Sheet formulas of row 2 are translated down to the last Tech_Data row
 (columns out of scope — F, G, H, W, X, Y, Z, AA — are left blank).
 
@@ -23,9 +25,10 @@ from pathlib import Path
 
 import openpyxl
 from openpyxl.formula.translate import Translator
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.formula import ArrayFormula
 
-TEMPLATE = Path(__file__).parent.parent / "Docs" / "Templete_OOJ Process_Date_September_KABIDEBA.xltx"
+TEMPLATE = Path(__file__).parent.parent / "Docs" / "Templete_OOJ Process_Date_Month_KABIDEBA.xltx"
 
 SHEET_TECH = "Tech_Data"
 SHEET_SCC = "SCC_(A,D,E,L)"
@@ -33,7 +36,7 @@ SHEET_EAGLE = "Eagle_EYE data"
 SHEET_MISSORT = "Missort Data"
 SHEET_GCRS = "GCRS_Data"
 SHEET_ADS = "ADS Predicted Data"
-SHEET_DSR = "Waterfall_DATA"  # repurposed to the required TID -> Zone mapping
+SHEET_DSR = "DSR Data"  # full DSR Raw data export, aligned to the sheet's row-1 headers
 SHEET_AGENT = "GCRS Agentspaces "  # trailing space is part of the template name
 SHEET_WORK = "Working Sheet"
 
@@ -173,24 +176,68 @@ def write_ads(ws, rows: list[dict]) -> int:
     return len(rows)
 
 
-def write_dsr_zone(ws, rows: list[dict]) -> int:
-    """Write only the required DSR mapping: tracking_id -> zone."""
+def _header_key(name) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(name or "").lower())
+
+
+def write_dsr_data(ws, rows: list[dict]) -> int:
+    """Save the full DSR Raw data export into the template's "DSR Data" sheet.
+
+    Each value is placed under the sheet's own row-1 header (exact name first, then a
+    case/punctuation-insensitive match). Export columns the sheet has no header for are
+    appended to the right of the last header, so no downloaded data is dropped. Column A
+    (tracking_id) is written as an int when all digits so the Working Sheet VLOOKUP on
+    D (TID) matches. Returns the number of unique TIDs that carry a zone.
+    """
+    headers = [c.value for c in ws[1]]
+    while headers and headers[-1] in (None, ""):
+        headers.pop()
     clear_rows(ws, 2)
-    ws["A1"] = "tracking_id"
-    ws["B1"] = "zone"
-    seen = set()
-    count = 0
-    for row in rows:
-        tid = str(row.get("tracking_id") or row.get("Tracking id") or "").strip()
-        if tid.endswith(".0") and tid[:-2].isdigit():
-            tid = tid[:-2]
-        zone = str(row.get("zone") or row.get("Zone") or "").strip()
-        if not tid or tid in seen or not zone:
+    if not rows:
+        return 0
+    if not headers:
+        headers = ["tracking_id", "zone"]
+        for column, name in enumerate(headers, start=1):
+            set_literal_cell(ws.cell(row=1, column=column), name)
+    source_keys = [k for k in rows[0].keys() if k not in (None, "")]
+    by_norm = {}
+    for key in source_keys:
+        by_norm.setdefault(_header_key(key), key)
+    mapping = []  # source key (or None) per sheet column
+    used = set()
+    for header in headers:
+        if header in (None, ""):
+            mapping.append(None)
             continue
-        seen.add(tid)
-        append_literal_row(ws, [num(tid), zone])
-        count += 1
-    return count
+        key = header if header in rows[0] else by_norm.get(_header_key(header))
+        mapping.append(key)
+        if key is not None:
+            used.add(key)
+            used.add(_header_key(key))
+    for key in source_keys:
+        if key in used or _header_key(key) in used:
+            continue
+        set_literal_cell(ws.cell(row=1, column=len(mapping) + 1), key)
+        mapping.append(key)
+        used.add(key)
+        used.add(_header_key(key))
+    tid_col = next((i for i, h in enumerate(headers, start=1) if _header_key(h) == "trackingid"), 1)
+    seen_zone = set()
+    for row in rows:
+        values = []
+        for column, key in enumerate(mapping, start=1):
+            value = row.get(key) if key is not None else None
+            if column == tid_col:
+                tid = str(row.get("tracking_id") or value or "").strip()
+                if tid.endswith(".0") and tid[:-2].isdigit():
+                    tid = tid[:-2]
+                value = num(tid) if tid else None
+            values.append(value)
+        append_literal_row(ws, values)
+        tid_text = str(values[tid_col - 1] or "").strip()
+        if tid_text and str(row.get("zone") or "").strip():
+            seen_zone.add(tid_text)
+    return len(seen_zone)
 
 
 def write_polygon_rows(ws, rows: list[dict]) -> int:
@@ -245,7 +292,15 @@ def _probability(value) -> float:
 
 
 # ------------------------------------------------------------------ working sheet
-def extend_working_sheet(ws, n_rows: int, use_dsr_zone: bool = False) -> dict:
+def dsr_zone_column(ws) -> int:
+    """1-based column of 'zone' in the DSR Data header row (22 = V in the template)."""
+    for cell in ws[1]:
+        if _header_key(cell.value) == "zone":
+            return cell.column
+    return 22
+
+
+def extend_working_sheet(ws, n_rows: int, use_dsr_zone: bool = False, dsr_zone_col: int = 22) -> dict:
     """Translate the TEMPLATE'S row-2 formulas to rows 2..n_rows+1.
 
     Column P is never reimplemented or wrapped in Python: the template's P2 carries the
@@ -279,13 +334,13 @@ def extend_working_sheet(ws, n_rows: int, use_dsr_zone: bool = False) -> dict:
         )
 
     if use_dsr_zone:
-        # User-confirmed source: Zone is mapped by TID from the DSR Raw data export.
-        # This changes only column I; the authoritative remark formula in P is untouched.
-        originals["I"] = (
-            "formula",
-            '=IFERROR(IF(VLOOKUP(D2,Waterfall_DATA!A:B,2,FALSE)="","",'
-            'VLOOKUP(D2,Waterfall_DATA!A:B,2,FALSE)),"")',
-        )
+        # User-confirmed source: Zone is looked up by TID (D) in the "DSR Data" sheet,
+        # which holds the full DSR Raw data export. The template's own I2 keys on E
+        # (station code), which can never match a tracking ID, so I is always keyed on D.
+        # Operator rule (2026-11-18): a TID missing from DSR shows #N/A (no IFERROR), exactly
+        # like the template's =VLOOKUP(D2,'DSR Data'!A:V,22,0). Only column I; P is untouched.
+        zone_letter = get_column_letter(dsr_zone_col)
+        originals["I"] = ("formula", f"=VLOOKUP(D2,'{SHEET_DSR}'!A:{zone_letter},{dsr_zone_col},0)")
     last_row = max(ws.max_row, n_rows + 1)
     for r in range(2, last_row + 1):
         for cell in ws[r]:
@@ -380,13 +435,15 @@ def fill(template: Path, out_path: Path, tech_rows, scc_rows, eagle_rows, missor
     stats["missort"], stats["missort_unknown_cols"] = write_missort(wb[SHEET_MISSORT], missort_rows)
     stats["gcrs"] = write_gcrs(wb[SHEET_GCRS], gcrs_rows)
     stats["ads"] = write_ads(wb[SHEET_ADS], ads_rows)
-    stats["dsr_zone"] = write_dsr_zone(wb[SHEET_DSR], dsr_rows)
+    stats["dsr_rows"] = len(dsr_rows)
+    stats["dsr_zone"] = write_dsr_data(wb[SHEET_DSR], dsr_rows)
     stats["polygon"] = write_polygon_rows(wb[SHEET_AGENT], polygon_rows)
     stats["polygon_counts"] = polygon_counts
     stats["working"] = extend_working_sheet(
         wb[SHEET_WORK],
         len(tech_rows),
         use_dsr_zone=dsr_rows_provided,
+        dsr_zone_col=dsr_zone_column(wb[SHEET_DSR]),
     )
     if polygon_rows:
         working_sheet = wb[SHEET_WORK]

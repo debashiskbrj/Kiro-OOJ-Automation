@@ -5,6 +5,17 @@ code added/changed. Details belong in the other docs; this is the timeline.
 
 ---
 
+- **2026-11-18** — TEMPLATE: new template `Docs/Templete_OOJ Process_Date_Month_KABIDEBA.xltx`
+  (renamed; the old `..._Date_September_...` template was removed by the operator). It adds a
+  `DSR Data` sheet with the DSR Raw data headers. `fill_template.write_dsr_data()` now saves
+  every downloaded DSR row there (aligned to the headers; extra export columns appended to
+  the right, never dropped) instead of a 2-column TID->zone map in `Waterfall_DATA`.
+  Working Sheet I = `=VLOOKUP(D2,'DSR Data'!A:V,22,0)` keyed on D (TID); a TID missing from
+  DSR shows `#N/A` (operator's choice, not blank). Operator deleted the `Waterfall_DATA`
+  sheet (W/X/Y/Z are blanked out-of-scope columns). Test: `tests/test_dsr_data_sheet.py`.
+  UI: visual-only CSS polish in `tools/web/style.css` (sticky header, card accents,
+  styled file inputs, table striping, thin scrollbars).
+
 - **2026-11-17** — FEATURE: **browser sign-in check at Start** (`tools/browser_signin.py`,
   called in `run_daily.py` Phase A right after preflight). After a laptop restart the
   automation Edge profile loses its QuickSight sign-in, so the first run's PNAMA sat on an

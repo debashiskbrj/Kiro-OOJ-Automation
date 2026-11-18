@@ -6,7 +6,7 @@ Last reviewed: 2026-11-16.
 
 Column **P ("Remark")** stays a **visible formula** in the delivered workbook, so the
 operator can trace every remark in the formula bar. The template's Working Sheet P2
-(`Docs/Templete_OOJ Process_Date_September_KABIDEBA.xltx`, an array formula) carries the
+(`Docs/Templete_OOJ Process_Date_Month_KABIDEBA.xltx`, an array formula) carries the
 operator's complete remark formula:
 
 - `ISNA(J2)` → `Invalid- Incorrect TID / TID Not Found`;

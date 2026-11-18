@@ -18,7 +18,7 @@ Kiro OOJ Automation/
 ├── .gitignore                 Keeps run data, secrets, caches and scratch out of git
 │
 ├── Docs/                      All documentation (see the map in README.md)
-│   ├── Templete_OOJ Process_Date_September_KABIDEBA.xltx   THE TEMPLATE (P2 = remark formula)
+│   ├── Templete_OOJ Process_Date_Month_KABIDEBA.xltx   THE TEMPLATE (P2 = remark formula)
 │   ├── user-guide.md             Daily steps on the web page (operator)
 │   ├── SOP-OOJ-Automation.md     Standard operating procedure + checklist
 │   ├── troubleshooting.md        Known failures and fixes

@@ -28,7 +28,7 @@ pull for the operator to upload SCC's export, then auto-resumes.)
 | Documentation (this doc set) | `Docs\` (moved from root 2026-09-16) |
 | Scripts | `tools\` (probes + clients built so far — see implementation.md) |
 | Capture artifacts / logs | `tools\captures\` |
-| Excel template (reference logic) | `Docs\Templete_OOJ Process_Date_September_KABIDEBA.xltx` |
+| Excel template (reference logic) | `Docs\Templete_OOJ Process_Date_Month_KABIDEBA.xltx` |
 | SOP | `c:\Users\kabideba\Desktop\Out_of_Jurisdiction_SOP_Final_Updated.docx` |
 | Older automation | `c:\Users\kabideba\Desktop\My Files\My Automation\` (run_automation.py, post_comments.py) |
 | Browser automation profile | `...\My Automation\TT_Automation\edge_profile` (persistent Edge + Midway/Sentry sessions + AEA extension) |

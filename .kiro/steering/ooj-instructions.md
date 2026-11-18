@@ -52,8 +52,13 @@ Last reviewed: 2026-11-16.
 
 ### PNAMA / DSR
 - If the tool fails to pull data after searching, refresh the page ONCE and try again (2 attempts total).
-- DSR: column A = `tracking_id`, column V = `zone`. Column I in the template uses VLOOKUP on the
-  Working Sheet (D = TID) against `Waterfall_DATA!A:B` to fill zone. Ignore any pre-existing I formula.
+- DSR: the FULL DSR Raw data export is saved in the template's `DSR Data` sheet (row 1 = the
+  operator's DSR header row; values placed under matching headers, unknown export columns appended
+  to the right). Column A = `tracking_id`, column V = `zone`. Working Sheet I = Zone via
+  `=VLOOKUP(D2,'DSR Data'!A:V,22,0)` keyed on D (TID), same as the template I2 (corrected by the
+  operator 2026-11-18). A TID missing from DSR shows `#N/A` — operator wants #N/A, NOT blank (no IFERROR).
+  The `Waterfall_DATA` sheet was deleted from the template; Working Sheet W/X (now `#REF!` in the
+  template) and Y/Z are out-of-scope columns and are blanked in the output.
 
 ### GCRS
 - Edge browser is NOT mandatory. Runs in `auto` mode: try mcscli first (no browser); only fall back to Edge if mcscli fails.
