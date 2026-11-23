@@ -23,8 +23,6 @@ tools/
   tid_polygon_checker.py   boundary run + standalone verification workbook
   ads_run.py               ADS Streamlit UI driver (single-file upload)
   fill_template.py         write all sheets + translate Working Sheet formulas
-  remark_rules.py          historical column-P rules (standalone; P is now a live template formula)
-  apply_remarks.py         standalone CLI only (not called by the pipeline)
   resolve_tickets_runner.py  bulk resolve SIM-T tickets (page section 5)
   post_comments_runner.py  post comments to tickets (page section 6)
   auto_setup.py            installs missing Python packages at server start
@@ -109,12 +107,14 @@ Run the suite:
 ```
 py -3.13 -m pytest tests -q
 ```
-123 tests as of 2026-11-16, all must pass. Files: `test_polygon_workflow.py` (fill,
+142 tests as of 2026-11-23, all must pass. Files: `test_polygon_workflow.py` (fill,
 template P2, polygon), `test_web_controller.py` (download gates), `test_scc_stop_rerun.py`
 (stop/rerun after SCC), `test_resolve_tickets.py` (Resolve ticket, fake API),
 `test_approval_scan.py` (approval column), `test_wipe_old_runs.py` (3-day retention),
-`test_cx_address_check.py`, `test_remark_rules.py`, `test_post_comments.py`,
-`test_sanitize_captures.py`, `test_auto_setup.py`. Keep them green before shipping a change. The browser lanes and live API calls are not unit-tested
+`test_audit_fixes.py` (audit bug fixes), `test_dsr_data_sheet.py`, `test_dmaic_metrics.py`,
+`test_share_package.py`, `test_cx_address_check.py`, `test_post_comments.py`,
+`test_browser_signin.py`, `test_sanitize_captures.py`, `test_auto_setup.py`. Keep them
+green before shipping a change. The browser lanes and live API calls are not unit-tested
 (they need live systems) — verify those with a real run and the copied log.
 
 ---
@@ -126,7 +126,7 @@ template P2, polygon), `test_web_controller.py` (download gates), `test_scc_stop
 - For a new source/stage: add a `lane_*` in `run_daily.py`, wire it into `main()` in
   order, add its counts to the web controller's `_counts_for`, and (if it produces a
   CSV) to `SOURCE_CSV` for the per-source download.
-- Don't delete Working Sheet columns — it shifts the grid and breaks formulas (that
-  bug is why `apply_remarks.COLUMNS_TO_REMOVE` is empty).
-- Keep hard-coded paths (`edge_profile`, endpoints) in mind if porting to another
-  machine; they'd need to be made configurable first.
+- Don't delete Working Sheet columns — it shifts the grid and breaks formulas. Only add
+  columns after AG (next free: AJ).
+- Per-user paths (Edge profile, builder-mcp) live in `tools/ooj_paths.py`; never hard-code
+  a path to one person's laptop.

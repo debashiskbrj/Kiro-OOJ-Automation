@@ -27,14 +27,13 @@ from pathlib import Path
 
 # The third-party Python packages the pipeline needs at runtime. Only these are
 # auto-installed, and only when missing.
-REQUIRED_PACKAGES = ("openpyxl", "playwright", "requests")
+REQUIRED_PACKAGES = ("openpyxl", "playwright", "requests", "pandas")  # pandas: Post comments
 
-# System tool paths — these mirror the exact literals hard-coded in
-# ``run_daily.preflight()`` so the checklist and the engine agree on where these live.
-# (They are not centralised in ooj_paths.py; mirroring the literal here is lower-risk
-# than editing the working preflight.)
+# System tool paths — same locations ``run_daily.preflight()`` checks, so the checklist
+# and the engine agree. builder-mcp is per user (ooj_paths.BUILDER_MCP).
 MCSCLI_PATH = r"C:\Program Files\Common Files\AmazonMidwayClientSuite\bin\mcscli.exe"
-BUILDER_MCP_PATH = r"C:\Users\kabideba\AppData\Local\Toolbox\bin\builder-mcp.exe"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ooj_paths import BUILDER_MCP as BUILDER_MCP_PATH  # noqa: E402
 
 
 def _missing_packages() -> tuple[list[str], list[str]]:
@@ -170,9 +169,9 @@ def environment_checklist() -> dict:
 
     # (a) Required Python packages — reuse the pure import check.
     try:
-        already_ok, missing = _missing_packages()
+        already_ok, _missing = _missing_packages()
     except Exception as exc:
-        already_ok, missing = [], list(REQUIRED_PACKAGES)
+        already_ok = []
         items.append(_item("Python packages", False, f"check failed: {exc}",
                            "Restart the server to auto-install missing packages"))
     else:

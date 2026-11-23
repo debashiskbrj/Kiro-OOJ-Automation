@@ -248,14 +248,19 @@ def write_polygon_rows(ws, rows: list[dict]) -> int:
     is unaffected.
     """
     clear_rows(ws, 2)
-    if ws.max_row < 1 or ws["A1"].value is None:
-        ws.append(["Tracking ID", "Station", "GCRS Status", "CX Address Check"])
+    # Fix (audit 1.14): write the header INTO row 1. ws.append() after reading A1 put the
+    # header on row 2 and the data from row 3, leaving row 1 blank.
+    if ws["A1"].value in (None, ""):
+        for column, header in enumerate(["Tracking ID", "Station", "GCRS Status", "CX Address Check"], start=1):
+            set_literal_cell(ws.cell(row=1, column=column), header)
     for row in rows:
         tid = row.get("Tracking ID") or row.get("tracking_id") or row.get("TID")
         append_literal_row(
             ws,
             [
-                "" if tid is None else str(tid),
+                # Digits-only TIDs as numbers, like every other sheet, so the sheet's own
+                # VLOOKUP from Working Sheet D (a number) can match.
+                "" if tid is None else num(str(tid).strip()),
                 row.get("Station") or row.get("station"),
                 row.get("GCRS Status") or row.get("status"),
                 row.get("CX Address Check") or "",
@@ -445,25 +450,27 @@ def fill(template: Path, out_path: Path, tech_rows, scc_rows, eagle_rows, missor
         use_dsr_zone=dsr_rows_provided,
         dsr_zone_col=dsr_zone_column(wb[SHEET_DSR]),
     )
+    working_sheet = wb[SHEET_WORK]
     if polygon_rows:
-        working_sheet = wb[SHEET_WORK]
         # Column 33 (AG) = GCRS Agent Space (polygon status), written as a literal.
         # Column 34 (AH) = CX Address Check (new additive column, 2026-10). AH is empty in
         # the template (33-column layout), so writing it here shifts/clobbers nothing. We
         # also stamp the AH header in row 1 since the template has no header there.
         if working_sheet.cell(row=1, column=34).value in (None, ""):
             set_literal_cell(working_sheet.cell(row=1, column=34), "CX Address Check")
-        # Column 35 (AI) = Approval in Comments (new additive SIM-T column). AI is empty in
-        # the template, so writing it here shifts/clobbers nothing and does not touch AH(34)
-        # or AG(33). The value comes from the row-aligned tech_rows (Working Sheet row r ->
-        # tech_rows[r-2]), written as a literal exactly like CX Address Check (AH).
-        if working_sheet.cell(row=1, column=35).value in (None, ""):
-            set_literal_cell(working_sheet.cell(row=1, column=35), "Approval in Comments")
         for row_number, polygon_row in enumerate(polygon_rows, start=2):
             set_literal_cell(working_sheet.cell(row=row_number, column=33), polygon_row.get("GCRS Status") or "")
             set_literal_cell(working_sheet.cell(row=row_number, column=34), polygon_row.get("CX Address Check") or "")
+    # Column 35 (AI) = Approval in Comments (additive SIM-T column). AI is empty in the
+    # template, so writing it shifts/clobbers nothing. Its data comes from tech_rows (Working
+    # Sheet row r -> tech_rows[r-2]), which always exist, so it is written even when the
+    # polygon lane was skipped or left blank (fix, audit 1.12).
+    if tech_rows:
+        if working_sheet.cell(row=1, column=35).value in (None, ""):
+            set_literal_cell(working_sheet.cell(row=1, column=35), "Approval in Comments")
+        for row_number, tech_row in enumerate(tech_rows, start=2):
             set_literal_cell(working_sheet.cell(row=row_number, column=35),
-                             (tech_rows[row_number - 2].get("approval_in_comments") or ""))
+                             tech_row.get("approval_in_comments") or "")
     wb.save(out_path)
     stats["out"] = str(out_path)
     return stats

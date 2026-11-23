@@ -180,8 +180,13 @@ def main():
                  if line.strip()]
     rows, result = fetch(tids)
     if args.out:
+        # Fix (audit 1.16): "no data" is an accepted DSR outcome, so a zero-row export
+        # still writes a header-only CSV instead of crashing on rows[0].
+        fieldnames = list(rows[0].keys()) if rows else (
+            list(result.get("columns") or []) + [c for c in ("tracking_id", "zone")
+                                                 if c not in (result.get("columns") or [])])
         with open(args.out, "w", newline="", encoding="utf-8") as fh:
-            writer = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(rows)
     print(json.dumps({k: (len(v) if isinstance(v, list) else v) for k, v in result.items() if k != "columns"}))

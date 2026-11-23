@@ -106,9 +106,8 @@ download stays locked unless this passes.
 ## 11. Remark (column P)
 Column **P** stays a **live formula**: the template's own P2 (the operator's complete
 remark formula) is translated down every row by `fill_template.extend_working_sheet`,
-and `read_back` requires the generated P2 to equal the template P2. There is no separate
-"apply remarks" stage any more (`apply_remarks.py` remains only as a standalone CLI).
-Column removal is **disabled** — all columns are kept. See `remark-rules.md`.
+and `read_back` requires the generated P2 to equal the template P2. No Working Sheet
+column is ever deleted. See `remark-rules.md`.
 
 ---
 
@@ -136,12 +135,15 @@ keep_days=RUN_KEEP_DAYS)` with `RUN_KEEP_DAYS = 3` (changed 2026-11-16):
 
 - deletes run folders under `tools/captures/runs/` **older than 3 days** (by the
   `YYYYMMDD_HHMMSS` folder name, else modified time); never the run that is starting;
+- first stores each run's counts and timings (no TIDs) in `tools/metrics/run_history.csv`
+  (`tools/dmaic_metrics.py`);
 - deletes **every** per-source cache file under `tools/captures/<source>/` regardless of
-  age (fresh-data rule), except `scc_enum_map.json`;
+  age (fresh-data rule), except `scc_enum_map.json` and `tools/captures/post_comments/`
+  (Post comments uploads and reports are kept);
 - deletes Desktop `Templete_OOJ Process_*.xlsx` exports **older than 3 days**; no other
   Desktop file is touched.
 
 Phase B (`--resume-dir`) never cleans up. `tools/resolve_runs/` is outside `captures/` and
-is never cleaned. `prune_history()` (old 7-day pruner) still exists but is not called.
-The startup sanitizer `tools/sanitize_captures.py` (browser scratch,
-`.crdownload`/`.tmp`/`.partial`, `~/Downloads` leftovers) runs at server start/restart.
+is never cleaned. The startup sanitizer `tools/sanitize_captures.py` (browser scratch,
+`.crdownload`/`.tmp`/`.partial`, PNAMA/DSR leftovers in `~/Downloads`) runs at server
+start/restart. It never deletes SCC's own export `SearchResults*.csv`.

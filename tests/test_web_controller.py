@@ -19,7 +19,6 @@ def _publishable_summary() -> dict:
     stages["tickets"] = {"ok": True, "seconds": 1.0}
     stages["fill_recalc"] = {"ok": True, "seconds": 1.0}
     stages["read_back"] = {"ok": True, "seconds": 1.0}
-    stages["apply_remarks"] = {"ok": True, "seconds": 1.0}
     return {
         "stamp": "20260918_175108_857466",
         "stages": stages,

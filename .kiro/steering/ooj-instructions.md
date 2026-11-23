@@ -83,7 +83,7 @@ Last reviewed: 2026-11-16.
 - Dry-run preview first; nothing is posted until the operator confirms.
 
 ## Template / output
-- Column removal is DISABLED (`COLUMNS_TO_REMOVE = []`). Deleting columns shifts the grid and breaks formulas.
+- Never delete Working Sheet columns. Deleting columns shifts the grid and breaks formulas.
 - Full template = 33 Working Sheet columns (A..AG). Automation adds AH = CX Address Check, AI = Approval
   in Comments; next free column is AJ.
 - Column P (Remark) stays a visible formula copied from the template P2 — never flatten it to values.
@@ -92,7 +92,29 @@ Last reviewed: 2026-11-16.
 ## Retention
 - Each fresh Start deletes run folders and Desktop output workbooks older than 3 days; newer ones are kept.
 - Per-source caches are cleared on every Start (fresh data only). No other Desktop file is ever touched.
-- Resolve reports in `tools/resolve_runs/` are kept.
+- Resolve reports in `tools/resolve_runs/` and Post comments reports in `tools/captures/post_comments/` are kept.
+- Server start/restart never deletes SCC's own export `SearchResults*.csv` from Downloads.
+
+## How to answer the operator (2026-11-22)
+- Answer every question about this project with the **STAR method** (Situation, Task, Action,
+  Result) and tie it to the **Lean Six Sigma DMAIC** phase it belongs to (Define, Measure,
+  Analyze, Improve, Control). Use real numbers from `tools/metrics/run_history.csv`, run logs
+  and tests. Never invent a number. Mark unknowns **[TO FILL]**.
+- The DMAIC write-up lives in `Docs/dmaic-project.md`. Update it when a change affects a phase
+  (new fix = Improve, new check = Control, new root cause = Analyze).
+- Keep STAR short for short questions: one line per letter is fine.
+
+## Sharing with colleagues (2026-11-18)
+- KABIDEBA is the owner & author. Credit + contact (kabideba@amazon.com) must stay in the page,
+  server banner, .bat files, `READ ME FIRST.txt`, `NOTICE.txt`, `tools/about.py`, health reports.
+  Colleagues contact ONLY the owner for help/corrections.
+- Colleagues use it WITHOUT Kiro/LLM: unzip → `Start OOJ Web.bat`. Keep it one-click.
+- Share zip: `Make Share Zip.bat` (`tools/build_share_zip.py`). Never pack captures, run data,
+  resolve/health reports, `.git`, `.kiro`, `.neurotrace` (token), `.agents`.
+- Weekly health check (bug-fix run) must stay: every 7 days + after a VERSION change.
+- No per-person paths in code — use `tools/ooj_paths.py`. The owner's own setup must stay unchanged.
+- The report/workbook content and output name must not change because of sharing work.
+- After any change: bump `VERSION`, run tests, rebuild the zip.
 
 ## Operating reminders
 - Two Midway steps: terminal `mwinit -o` (Grant Midway) for SIM-T/EagleEye/GCRS, and the

@@ -226,7 +226,7 @@ $("start-btn").addEventListener("click", async () => {
   runActive = true;
   $("stop-btn").disabled = false;
   $("start-state").textContent = data.partial
-    ? "Running (partial \u2014 ADS not approved, no download will be produced)."
+    ? "Running (partial \u2014 ADS not approved; the workbook will be labelled PARTIAL)."
     : "Running the full pipeline\u2026";
   startPolling();
 });
@@ -266,8 +266,21 @@ async function tick() {
   renderTable();
   renderFinish(status);
 
-  // Keep Stop enabled only while a run is actually running.
-  $("stop-btn").disabled = !status.running;
+  // Stop is enabled while a run is running and (fix, audit 1.8) while it is paused for
+  // the SCC upload, so a paused run can be abandoned without restarting the server.
+  $("stop-btn").disabled = !(status.running || SCC_PAUSE_PHASES.includes(status.scc_phase));
+
+  // Fix (audit 1.5): the SIM-T step (Phase A) failed, so there is nothing to resume.
+  // Stop polling and offer Start again instead of showing a false "Paused" state.
+  if (status.scc_phase === "phase_a_failed") {
+    clearInterval(pollTimer);
+    pollTimer = null;
+    runActive = false;
+    $("start-state").textContent = status.start_error ||
+      "The SIM-T step failed. See the live log, then click Start run again.";
+    refreshPreflight();
+    return;
+  }
 
   if (!status.running && !SCC_PAUSE_PHASES.includes(status.scc_phase) && (status.stamp || status.stopped)) {
     // Run finished or was stopped (not merely paused awaiting the SCC upload).
@@ -276,9 +289,24 @@ async function tick() {
     runActive = false;
     if (status.stopped) {
       $("start-state").textContent = "Run stopped. Click Start run to run again.";
+    } else if (runFailed(status)) {
+      $("start-state").textContent = "The run failed. See the Result banner and the live log, then click Start run again.";
     }
     refreshPreflight();
   }
+}
+
+// Fix (audit 1.10): a run that ended with an error (for example the workbook fill or the
+// read-back check failed) and is not a "blocked" or downloadable result.
+function runFailed(status) {
+  return !status.running && !!status.stamp && !status.stopped &&
+    status.exit_code !== null && status.exit_code !== undefined && status.exit_code !== 0 &&
+    !status.publication_blocked && !status.workbook_downloadable;
+}
+
+function failedStages(status) {
+  const stages = ((status.summary || {}).stages) || {};
+  return Object.keys(stages).filter((name) => stages[name] && stages[name].ok === false);
 }
 
 function renderSources(status) {
@@ -427,6 +455,13 @@ function renderFinish(status) {
   const dlBtn = $("download-btn");
   const note = $("desktop-note");
 
+  if (status.scc_phase === "phase_a_failed") {
+    banner.className = "banner error";
+    banner.textContent = "The run stopped at the SIM-T step. No workbook was produced. " +
+      (status.start_error || "See the live log, then click Start run again.");
+    dlBtn.disabled = true;
+    return;
+  }
   // Paused after SIM-T awaiting the manual SCC upload: Phase A has exited (so
   // status.running is false and status.stamp is set), but the run is NOT finished.
   // Show the paused state and never fall through to the "partial run complete" banner.
@@ -477,8 +512,10 @@ function renderFinish(status) {
     return;
   }
   if (status.workbook_downloadable) {
-    // A PARTIAL workbook: some sources were left blank but the file was produced.
-    const blanks = status.blank_sources || [];
+    // A PARTIAL workbook: some sources were left blank (or ADS was not approved) but the
+    // file was produced. The Desktop copy is labelled PARTIAL_.
+    const blanks = (status.blank_sources || []).slice();
+    if (status.partial && !blanks.includes("ads")) blanks.push("ads (not approved)");
     banner.className = "banner warn";
     banner.textContent =
       "PARTIAL \u2014 workbook ready to download. Blank source(s): " +
@@ -488,6 +525,15 @@ function renderFinish(status) {
     note.textContent = status.desktop_file
       ? "Saved to Desktop: " + status.desktop_file
       : "Click Download to save the partial workbook (also copied to your Desktop).";
+    return;
+  }
+  if (runFailed(status)) {
+    const failed = failedStages(status);
+    banner.className = "banner error";
+    banner.textContent = "The run failed" +
+      (failed.length ? " at: " + failed.join(", ") : "") +
+      ". No workbook was produced. See the live log for the reason, then click Start run again.";
+    dlBtn.disabled = true;
     return;
   }
   if (status.partial && status.stamp && !status.running) {
@@ -980,5 +1026,27 @@ function rtRender(status) {
 rtTick().then(() => { if (!$("rt-stop-btn").disabled) rtStartPolling(); });
 
 // -------------------------------------------------------- boot
-refreshPreflight();
+// Fix (audit 1.9): after a page reload or reopening the window, re-attach to a run the
+// server is still holding (running, paused for the SCC upload, or finished) instead of
+// showing an empty page with Start enabled. Uses only existing /status fields.
+async function reattachToRun() {
+  let status;
+  try {
+    status = await getJSON("/status");
+  } catch (e) {
+    return;
+  }
+  if (status.running || SCC_PAUSE_PHASES.includes(status.scc_phase)) {
+    runActive = true;
+    $("start-btn").disabled = true;
+    $("start-state").textContent = status.running
+      ? "A run is in progress (page reloaded) \u2014 progress is shown below."
+      : "A run is paused \u2014 upload SCC's export CSV in the SCC card (step 3).";
+    startPolling();
+  } else if (status.stamp) {
+    tick();  // finished run: show its result and Download button again
+  }
+}
+
+reattachToRun().finally(refreshPreflight);
 setInterval(() => { if (!runActive) refreshPreflight(); }, 5000);

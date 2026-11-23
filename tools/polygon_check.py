@@ -17,6 +17,11 @@ from typing import Callable
 from uuid import uuid4
 
 from siw_client import FailoverSiwSession
+from ooj_paths import USER_ALIAS
+
+# Alias sent as "operator" on the polygon routes call: whoever runs the automation
+# (falls back to the owner's alias if the Windows login name cannot be read).
+OPERATOR_ALIAS = USER_ALIAS or "kabideba"
 
 CACHE = Path(__file__).parent / "captures" / "polygons"
 CACHE.mkdir(parents=True, exist_ok=True)
@@ -56,6 +61,35 @@ _PIN_ZONE_STATES = {
           "nicobar", "wb"},
     "8": {"bihar", "jharkhand"},
 }
+
+# Two/three-letter state codes seen in GCRS/SIW "State" (e.g. PB, DL, KL, TG, MH, HR, RJ,
+# BR). Matched EXACTLY (never fuzzy/substring), because short codes collide with parts of
+# longer names. Fix (audit 1.2): these used to be unknown and produced false MISMATCH.
+_PIN_ZONE_CODES = {
+    "1": {"dl", "hr", "pb", "hp", "jk", "ch", "la"},
+    "2": {"up", "uk", "ut"},
+    "3": {"rj", "gj", "dd", "dn", "dh"},
+    "4": {"mh", "mp", "cg", "ct", "ga"},
+    "5": {"ap", "ts", "tg", "ka"},
+    "6": {"tn", "kl", "py", "ld"},
+    "7": {"wb", "or", "od", "as", "sk", "ar", "nl", "mn", "mz", "tr", "ml", "an"},
+    "8": {"br", "jh"},
+}
+
+
+def _state_zones(state_norm: str) -> set[str]:
+    """PIN zones (leading digits) whose states match this address state.
+
+    Empty set = the text is not a recognisable Indian state (for example a city or
+    district such as "Bengaluru" or "Ludhiana"); the caller then makes NO zone verdict
+    instead of a false MISMATCH (audit 1.2)."""
+    if not state_norm:
+        return set()
+    if len(state_norm) <= 3:
+        return {zone for zone, codes in _PIN_ZONE_CODES.items() if state_norm in codes} | \
+               {zone for zone, names in _PIN_ZONE_STATES.items() if state_norm in names}
+    return {zone for zone, names in _PIN_ZONE_STATES.items()
+            if any(len(name) > 3 and _fuzzy_same(state_norm, name) for name in names)}
 
 
 def _fuzzy_same(a: str, b: str, thresh: float = 0.80) -> bool:
@@ -101,14 +135,13 @@ def analyze_cx_address(info: dict) -> str:
         return f"MISMATCH — no PIN on address ({city or '—'})"
     if not pin_ok_fmt:
         return f"MISMATCH — malformed PIN '{pin}' ({city or '—'})"
-    # PIN zone vs address state: if the address NAMES a state that belongs to a
-    # different PIN zone than this PIN's leading digit, the PIN does not serve
-    # this address. Typo-tolerant on the state name.
-    zone_states = _PIN_ZONE_STATES.get(pin[0], set())
-    st_norm = _addr_norm(state)
-    if st_norm and zone_states:
-        state_in_zone = any(_fuzzy_same(st_norm, z) for z in zone_states)
-        if not state_in_zone:
+    # PIN zone vs address state: if the address NAMES a recognisable state (full name,
+    # typo-tolerant, or an exact 2-3 letter code) that belongs only to other PIN zones,
+    # the PIN does not serve this address. City/district names and unknown text give no
+    # verdict here (audit 1.2).
+    if pin[0] in _PIN_ZONE_STATES:
+        zones = _state_zones(_addr_norm(state))
+        if zones and pin[0] not in zones:
             return (f"MISMATCH — PIN {pin} (zone {pin[0]}) does not serve "
                     f"{state} ({ref})")
     if conf == "low" or (gtype and gtype != "deliverypoint" and conf != "high"):
@@ -318,7 +351,7 @@ def fetch_polygons(
     try:
         station_data = _post(active_session, "gs", {"stationNames": station})
         record = _default_station_record(station_data, station, carrier)
-        routes = _post(active_session, "gr", {"stationIds": record["id"], "operator": "kabideba"})
+        routes = _post(active_session, "gr", {"stationIds": record["id"], "operator": OPERATOR_ALIAS})
         if not isinstance(routes, list):
             raise RuntimeError(f"Unexpected response fetching routes for {station}")
         geometries: list[dict] = []

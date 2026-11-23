@@ -505,6 +505,7 @@ def main():
     print("=" * 60)
     print("  OOJ Process Automation")
     print("  Designed & built by KABIDEBA  (SWA India - Automation)")
+    print("  Owner & author: KABIDEBA - help / corrections: kabideba@amazon.com")
     print("=" * 60)
     print(f"OOJ web runner on {url}  (Ctrl+C to stop)")
     # Daily protection: clear output-corrupting scratch before the first run can start.

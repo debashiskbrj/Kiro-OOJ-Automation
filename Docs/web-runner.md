@@ -41,6 +41,10 @@ button, or close every `server.py` process before starting a new one.
 | `scc_uploaded` | Valid upload stored; Phase B about to start |
 | `running` | Phase B (`--resume-dir`) running: SCC load → EagleEye/PNAMA/DSR → GCRS → Polygon → ADS → fill |
 | `scc_stopped` | Operator stopped Phase B; SIM-T data + SCC file kept; rerun or upload new file |
+| `phase_a_failed` | Phase A exited ≠ 0 or wrote no `tech_data.csv` (set by `_reconcile_phase_a` on `/status` and upload). Page shows the error (`start_error`) and offers Start again; uploads refused. Stop during Phase A → `idle`. |
+
+On page load `app.js reattachToRun()` reads `/status` and resumes polling for a running or
+paused run, or shows a finished run's result, so a reload never loses the run view.
 
 `SCC_PAUSE_PHASES` in `app.js` = `awaiting_scc_upload`, `scc_uploaded`, `scc_stopped`.
 
@@ -109,7 +113,13 @@ At every fresh Start (Phase A), `run_daily.wipe_old_runs` (keep window
 - deletes Desktop `Templete_OOJ Process_*.xlsx` files older than 3 days; no other
   Desktop file is touched.
 
-Phase B never wipes. `tools/resolve_runs/` is outside `captures/` and is never wiped.
+Phase B never wipes. `tools/resolve_runs/` is outside `captures/` and is never wiped;
+`tools/captures/post_comments/` (Post comments reports) is also kept.
+
+Before Phase B starts, `continue_after_scc` checks Midway and the Edge profile again
+(`_resume_preflight_problem`); on a problem the phase goes back to `awaiting_scc_upload`
+with a clear reason, and the SCC file can be uploaded again. The main **Stop** button also
+works while paused (`stop_run` → `idle`, `stopped: true`).
 At server start/restart `tools/sanitize_captures.py` also clears partial downloads and
 browser scratch.
 

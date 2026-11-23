@@ -386,23 +386,6 @@ def _launch(p):
     )
 
 
-def _wait_for_file(before: set[str], timeout_s: int = 300) -> Path | None:
-    """Wait for a new, fully written CSV in Edge's download dir (or the user's Downloads as fallback)."""
-    folders = [DL_DIR, Path.home() / "Downloads"]
-    deadline = time.time() + timeout_s
-    while time.time() < deadline:
-        for folder in folders:
-            for f in folder.glob("SWA_repeat_Prox_Pnam*"):
-                if str(f) in before or f.suffix.lower() in (".crdownload", ".tmp", ".partial"):
-                    continue
-                s1 = f.stat().st_size
-                time.sleep(1.5)
-                if f.exists() and f.stat().st_size == s1 and s1 > 0:
-                    return f
-        time.sleep(2)
-    return None
-
-
 def fetch(tids: list[str], log_fn=None) -> tuple[list[dict], dict]:
     """Pipeline entry: export PNAMA rows for the TIDs; returns (rows, validation)."""
     global log

@@ -8,7 +8,26 @@ page can also bulk-resolve tickets and post comments, each behind an explicit co
 Built by **KABIDEBA**, SWA India. Runs **locally** on the operator's Windows laptop, is
 **free**, and uses **no AI/LLM** in the run path.
 
-Last reviewed: 2026-11-16.
+Last reviewed: 2026-11-18. Version: see `VERSION`.
+
+**Owner & author: KABIDEBA.** Help, problems or corrections: kabideba@amazon.com
+([Phonetool](https://phonetool.amazon.com/users/kabideba)). Colleagues: start with
+**`READ ME FIRST.txt`**.
+
+---
+
+## Sharing with colleagues
+
+- Owner runs **`Make Share Zip.bat`** → `Desktop\OOJ_Automation_by_KABIDEBA_v<version>_<date>.zip`
+  (`tools/build_share_zip.py`). Never packs run data, reports, git, Kiro/NeuroTrace files or tokens.
+- Colleague unzips and double-clicks **`Start OOJ Web.bat`** (finds/installs Python, auto-installs
+  packages, opens the page). No Kiro/LLM needed. Each person runs it under their own login.
+- **Weekly health check** (`tools/health_check.py`): runs from the launcher every 7 days and after a
+  new version; also `Run Health Check.bat`. Safe auto-fixes + template check + self-test; report in
+  `tools/health/` to send to the owner.
+- Paths are per user (`tools/ooj_paths.py`): builder-mcp under `%LOCALAPPDATA%\Toolbox\bin`, Edge
+  profile = the owner's existing folder if present, else `%LOCALAPPDATA%\OOJ_Automation\edge_profile`.
+- When you change anything: bump `VERSION`, run tests, rebuild the zip, send it out.
 
 ---
 
@@ -17,7 +36,8 @@ Last reviewed: 2026-11-16.
 1. Prerequisites (once): Python 3.13, Midway (`mwinit -o`), the automation Edge profile
    signed in to the PNAMA/DSR dashboards, your normal browser signed in to SCC.
    Details: `Docs/user-guide.md`.
-2. Double-click **`Start OOJ Web.bat`** — the page opens at http://127.0.0.1:8000/.
+2. Double-click **`Start OOJ Web.bat`** — the page opens at http://127.0.0.1:8000/
+   (if it is already running, the launcher just reopens it instead of starting a second copy).
 3. **Grant Midway access** → tick **Approve ADS upload** → **Start run**.
 4. When the run pauses at SCC, export SCC's CSV by hand and upload it in the SCC card.
 5. When it finishes, **Download filled workbook** (also saved to your Desktop as
@@ -64,6 +84,7 @@ Per-stage details: `Docs/pipeline-reference.md`.
 | `Docs/edge-cases.md` | Edge cases learned | Maintainer |
 | `Docs/PRD-OOJ-Automation.md` | Product requirements | Maintainer |
 | `Docs/changes.md` | Changelog (newest first) | Maintainer |
+| `Docs/dmaic-project.md` | Lean Six Sigma DMAIC write-up: charter, SIPOC, Pareto, control plan | Owner / reviewers |
 | `.kiro/steering/ooj-instructions.md` | Standing operator rules for AI assistants | Maintainer |
 
 ---

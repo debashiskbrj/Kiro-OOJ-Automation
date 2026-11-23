@@ -23,7 +23,7 @@
       <div class="credit">
         <span class="credit-label">Designed &amp; built by</span>
         <span class="credit-name">KABIDEBA</span>
-        <span class="credit-tag">SWA India · Automation</span>
+        <span class="credit-tag">SWA India · Automation · <a class="help-link" href="mailto:kabideba@amazon.com?subject=OOJ%20Automation%20-%20help">Need help?</a></span>
       </div>
     </div>
   </header>
@@ -44,7 +44,7 @@
         <input type="checkbox" id="ads-approve" />
         Approve ADS upload for this run (required for a complete, downloadable workbook).
       </label>
-      <p class="hint">ADS uploads tracking IDs and addresses over a plaintext endpoint. Leave unticked for a partial run (no download).</p>
+      <p class="hint">ADS uploads tracking IDs and addresses over a plaintext endpoint. Leave unticked for a partial run: the ADS sheet stays empty and the workbook is labelled PARTIAL.</p>
       <label class="checkbox">
         <input type="checkbox" id="allow-source-failures" />
         Allow partial download if a source fails (leaves that tool's sheet blank).
@@ -156,9 +156,17 @@
   <footer class="app-footer">
     <span>OOJ Process Automation</span>
     <span class="dot">&bull;</span>
-    <span>Conceived, designed &amp; developed by <strong>Kabideba</strong></span>
+    <span>Conceived, designed &amp; developed by <strong>Kabideba</strong> (owner &amp; author)</span>
     <span class="dot">&bull;</span>
     <span>Runs locally · read-only · no data leaves this machine</span>
+    <div class="support-line">
+      Facing a problem or need a correction? Contact the owner
+      <a href="mailto:kabideba@amazon.com?subject=OOJ%20Automation%20-%20help">kabideba@amazon.com</a>
+      <span class="dot">&bull;</span>
+      <a href="https://phonetool.amazon.com/users/kabideba" target="_blank" rel="noopener">Phonetool: kabideba</a>
+      <span class="dot">&bull;</span>
+      Attach the latest report from <code>tools\health\</code> (run <em>Run Health Check.bat</em>).
+    </div>
   </footer>
 
   <script src="/app.js"></script>

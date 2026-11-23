@@ -1,0 +1,72 @@
+==================================================================
+  OOJ PROCESS AUTOMATION
+  Owner & author : KABIDEBA  (SWA India - Automation)
+  Help / problems / corrections : kabideba@amazon.com
+  Phonetool      : https://phonetool.amazon.com/users/kabideba
+==================================================================
+
+WHAT IT DOES
+  Builds the daily OOJ workbook (Templete_OOJ Process_<Month>_KABIDEBA1_<time>.xlsx)
+  on your Desktop from SIM-T, SCC, EagleEye, PNAMA, DSR, GCRS, Polygon and ADS.
+  Everything runs on YOUR laptop under YOUR own login. Nothing is hosted.
+  No AI / Kiro / LLM is needed.
+
+------------------------------------------------------------------
+BEFORE THE FIRST USE  (one time)
+------------------------------------------------------------------
+  You need access to the same tools you use for the manual process:
+    - Midway with your security key (YubiKey)
+    - SIM-T (OOJ ticket queue)
+    - QuickSight dashboards: PNAMA (Missort) and DSR Waterfall
+    - SCC, EagleEye, GCRS, ADS
+  Software (ask IT / Software Center if missing):
+    - Microsoft Excel and Microsoft Edge
+    - Python 3.13          (Start will offer to install it if missing)
+    - Amazon Toolbox "builder-mcp"  (needed for SIM-T)
+    - Amazon Midway Client Suite (mwinit / mcscli)
+
+  1. Unzip this folder anywhere, for example to your Desktop.
+     Do not rename or move files inside it.
+  2. Double-click  "Start OOJ Web.bat".
+     The first start installs the Python parts by itself (a few minutes).
+
+------------------------------------------------------------------
+DAILY USE
+------------------------------------------------------------------
+  1. Double-click "Start OOJ Web.bat". The OOJ page opens.
+  2. Section 1: click "Grant Midway access" and approve with PIN + key.
+  3. Section 2: tick the boxes and click "Start run".
+     - An Edge window may open for the PNAMA / DSR sign-in. Sign in with
+       PIN + key if asked. It closes by itself.
+  4. When the run pauses at SCC: export SCC's CSV by hand (sign in to SCC
+     in your normal browser) and upload it in the SCC card.
+  5. Section 4: click "Download filled workbook". A copy is saved on your Desktop.
+  Keep the black console window open while you work; closing it stops the page.
+
+------------------------------------------------------------------
+WEEKLY HEALTH CHECK  (bug-fix run)
+------------------------------------------------------------------
+  Once every 7 days "Start OOJ Web.bat" runs a health check by itself
+  (1-2 minutes). It installs anything missing, clears stale files, checks the
+  template and runs the built-in self-test.
+  You can also double-click "Run Health Check.bat" any time something looks wrong.
+  Reports are saved in:  tools\health\health_<date>.txt
+
+------------------------------------------------------------------
+NEED HELP?  ->  contact the owner KABIDEBA only
+------------------------------------------------------------------
+  Email kabideba@amazon.com with:
+    - what you clicked and what you saw (a screenshot helps)
+    - the latest report from tools\health\  (run "Run Health Check.bat" first)
+  Corrections and new versions come only from the owner. Please do not edit
+  the files yourself; replace the whole folder when you get a new zip.
+
+------------------------------------------------------------------
+RULES
+------------------------------------------------------------------
+  - Internal Amazon use only. Do not upload or share it outside Amazon.
+  - "Resolve ticket" and "Post comments" make REAL changes in SIM-T under your
+    login. Check the preview before you confirm.
+  - Do not edit the template in Docs\ or the files in tools\.
+
+  OOJ Process Automation - conceived, designed & developed by KABIDEBA.

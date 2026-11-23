@@ -20,7 +20,6 @@ import edge_preflight
 import fill_template
 import gcrs_mcscli
 import polygon_check
-import run_daily
 import siw_client
 import tid_polygon_checker
 from siw_client import SiwReply

@@ -23,6 +23,8 @@ def _setup(tmp_path, monkeypatch):
     sleeper.write_text("import time\ntime.sleep(120)\n", encoding="utf-8")
     monkeypatch.setattr(rc, "TOOLS", tools)
     monkeypatch.setattr(rc, "RUN_DAILY", sleeper)
+    # Resume preflight (Midway + Edge) is tested separately; no live session needed here.
+    monkeypatch.setattr(rc, "_resume_preflight_problem", lambda: None)
 
     run_dir = tmp_path / "run"
     run_dir.mkdir()

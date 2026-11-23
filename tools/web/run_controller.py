@@ -16,7 +16,6 @@ There is no LLM anywhere in this path, and every source-system call happens insi
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -181,6 +180,20 @@ def preflight_state() -> dict:
     }
 
 
+def _resume_preflight_problem() -> str | None:
+    """Plain-language reason Phase B cannot resume right now, or None when it can.
+    Same checks as Start: a valid Midway session and a free Edge automation profile."""
+    try:
+        if not midway_session_valid():
+            return ("Midway session expired during the pause. Click 'Grant Midway access', "
+                    "then upload the SCC CSV again.")
+        if edge_profile_status().get("profile_process_ids"):
+            return ("The automation Edge window is open. Close it, then upload the SCC CSV again.")
+    except Exception:  # a probe failure must not block the run (same as before this check)
+        return None
+    return None
+
+
 def launch_midway_prompt() -> dict:
     """Open a real terminal window running ``mwinit -o`` so the user can type the PIN.
 
@@ -258,6 +271,31 @@ class RunController:
     def is_running(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
 
+    def _reconcile_phase_a(self) -> None:
+        """Fix (audit 1.5): when Phase A (SIM-T step) has EXITED, check how it ended.
+
+        Phase A exits 0 after writing tech_data.csv. Anything else (preflight failure such
+        as an expired Midway session or a busy Edge profile, an incomplete SIM-T pull, a
+        crash, or the operator pressing Stop) means there is nothing to resume, so the
+        page must not keep showing "Paused - upload SCC". Only acts while the phase is
+        still "awaiting_scc_upload"; every other phase is left exactly as it was.
+        """
+        if self._phase != "awaiting_scc_upload" or self._proc is None or self._proc.poll() is None:
+            return
+        code = self._proc.returncode
+        run_dir = self._resolve_run_dir()
+        has_tech = run_dir is not None and (run_dir / "tech_data.csv").exists()
+        if code == 0 and has_tech:
+            return  # genuine pause: waiting for the operator's SCC upload
+        if self._stopped:
+            self._phase = "idle"
+            return
+        self._phase = "phase_a_failed"
+        self._start_error = (
+            f"The SIM-T step stopped with an error (exit code {code}). "
+            "See the live log for the reason, fix it, then click Start run again."
+        )
+
     def scc_upload_status(self) -> dict:
         """Current state of the manual SCC upload (replaces the retired SCC automation)."""
         return {
@@ -276,6 +314,7 @@ class RunController:
         stored so start_run() can pass it straight to run_daily.py --scc-csv.
         """
         with self._lock:
+            self._reconcile_phase_a()
             # Guard: only accept an upload once Phase A has finished (no live subprocess),
             # the run directory has resolved, and we are actually waiting on SCC.
             if (
@@ -387,6 +426,16 @@ class RunController:
                 return {"started": False, "reason": "Run directory or SCC upload path not resolved"}
             if not self._scc_upload_path.exists():
                 return {"started": False, "reason": "The uploaded SCC file is no longer on disk; upload it again"}
+            # Fix (audit 1.6): the pause before the SCC upload can be long. Check Midway and
+            # the Edge automation profile again before resuming, so an expired session or
+            # an Edge window opened during the pause gives this clear message instead of
+            # failing deep inside EagleEye/PNAMA/DSR. A fresh upload is then accepted again.
+            problem = _resume_preflight_problem()
+            if problem:
+                if self._phase == "scc_uploaded":
+                    self._phase = "awaiting_scc_upload"
+                self._scc_upload_error = problem
+                return {"started": False, "reason": problem}
             # Keep a copy of Phase A's summary (SIM-T done) so a later stop_after_scc can
             # restore the paused-after-SIM-T view. Phase B overwrites summary.json.
             phase_a_copy = run_dir / PHASE_A_SUMMARY
@@ -446,9 +495,13 @@ class RunController:
         """Abort the active run and its whole process tree (browser workers included)."""
         with self._lock:
             if not self.is_running():
-                # No live subprocess — this covers being stopped while paused awaiting
-                # the manual SCC upload (Phase A already exited cleanly). Reset to idle
-                # so Start is offered again.
+                # No live subprocess. Fix (audit 1.8): while PAUSED for the SCC upload (or
+                # after Stop-after-SCC) the main Stop now abandons the paused run and offers
+                # Start again; it used to answer "No run is in progress" (HTTP 409).
+                if self._phase in ("awaiting_scc_upload", "scc_uploaded", "scc_stopped"):
+                    self._phase = "idle"
+                    self._stopped = True
+                    return {"stopped": True}
                 self._phase = "idle"
                 return {"stopped": False, "reason": "No run is in progress"}
             error = self._kill_tree()
@@ -510,6 +563,7 @@ class RunController:
 
     # --------------------------------------------------------------- status
     def get_status(self, log_tail: int = 40) -> dict:
+        self._reconcile_phase_a()
         run_dir = self._resolve_run_dir()
         running = self.is_running()
         exit_code = None if running or self._proc is None else self._proc.returncode
@@ -534,6 +588,8 @@ class RunController:
             "scc_validation": self._scc_validation,
             # Stop-after-SCC button: offered only while Phase B (after the upload) runs.
             "can_stop_after_scc": self._phase == "running" and running,
+            # Additive: set when the SIM-T step (Phase A) failed (scc_phase "phase_a_failed").
+            "start_error": self._start_error if self._phase == "phase_a_failed" else None,
         }
         if not run_dir:
             return status
@@ -569,7 +625,7 @@ class RunController:
         summary = _read_summary(run_dir)
         if summary is None or not is_downloadable(summary, self._partial):
             return None
-        return publish_to_desktop(run_dir, self._stamp)
+        return publish_to_desktop(run_dir, self._stamp, partial=self._partial)
 
 
 # ------------------------------------------------------------------- helpers
@@ -720,7 +776,7 @@ def is_publishable(summary: dict, partial: bool) -> bool:
         if not (stages.get(lane) or {}).get("ok"):
             return False
     # The Remark (column P) is now a self-contained formula computed by Excel during
-    # fill/recalc, so there is no separate apply_remarks stage to gate on anymore.
+    # fill/recalc, so only fill/recalc and read_back are gated here.
     for stage in ("fill_recalc", "read_back"):
         if not (stages.get(stage) or {}).get("ok"):
             return False
@@ -761,14 +817,6 @@ def _verification_ok(verification) -> bool:
     return False
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _working_workbook(run_dir: Path, stamp: str | None) -> Path | None:
     if stamp:
         candidate = run_dir / f"OOJ_Working_{stamp}.xlsx"
@@ -802,12 +850,13 @@ def _existing_desktop_copy(stamp: str | None) -> str | None:
     return str(matches[-1]) if matches else None
 
 
-def publish_to_desktop(run_dir: Path, stamp: str | None) -> Path:
+def publish_to_desktop(run_dir: Path, stamp: str | None, partial: bool = False) -> Path:
     """Copy the produced workbook to the Desktop. Refuses if no downloadable workbook.
 
     The published file is named "Templete_OOJ Process_<Month>_KABIDEBA1_<stamp>.xlsx"
-    (<Month> auto-follows the current month). PARTIAL runs (some sources left blank) get a
-    PARTIAL_ tag before the stamp so the file itself is labelled.
+    (<Month> auto-follows the current month). PARTIAL runs get a PARTIAL_ tag before the
+    stamp so the file itself is labelled: some sources left blank, or (fix, audit 1.13)
+    a run started without ADS approval, whose ADS sheet is empty.
     """
     summary = _read_summary(run_dir)
     if summary is None:
@@ -818,7 +867,7 @@ def publish_to_desktop(run_dir: Path, stamp: str | None) -> Path:
     if source is None:
         raise RuntimeError("filled workbook not found in run directory")
     name_stamp = stamp or datetime.now().strftime("%Y%m%d_%H%M%S")
-    target = DESKTOP / _desktop_export_name(bool(blank_sources(summary)), name_stamp)
+    target = DESKTOP / _desktop_export_name(bool(blank_sources(summary)) or partial, name_stamp)
     shutil.copy2(source, target)
     return target
 

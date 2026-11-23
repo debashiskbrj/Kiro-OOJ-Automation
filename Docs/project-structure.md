@@ -2,18 +2,23 @@
 
 A map of where everything lives, so the project is easy to navigate and run.
 
-Last reviewed: 2026-11-16.
+Last reviewed: 2026-11-23.
 
 > **Cloning this repo?** It needs Python 3.13 (`py -3.13`); missing packages are
-> installed on first server start by `tools/auto_setup.py`. Override the machine-specific
-> Edge profile path in `tools/ooj_paths.py` with the `OOJ_EDGE_PROFILE` env var rather
-> than editing code. `tools/captures/`, `tools/resolve_runs/` and secrets are gitignored,
-> so a fresh clone has no real run data.
+> installed on first server start by `tools/auto_setup.py`. Per-user paths (Edge profile,
+> builder-mcp) come from `tools/ooj_paths.py` (override with `OOJ_EDGE_PROFILE` /
+> `OOJ_BUILDER_MCP`). `tools/captures/`, `tools/resolve_runs/`, `tools/health/`,
+> `tools/metrics/` and secrets are gitignored, so a fresh clone has no real run data.
 
 ```
 Kiro OOJ Automation/
 ├── README.md                  Overview + quick start + documentation map
-├── Start OOJ Web.bat          One-click launcher (starts the local web app on :8000)
+├── READ ME FIRST.txt          Colleague guide (in the share zip)
+├── NOTICE.txt                 Owner / author notice
+├── VERSION                    Version number (bump on every change)
+├── Start OOJ Web.bat          One-click launcher (finds Python, health check, page on :8000)
+├── Run Health Check.bat       Weekly health check on demand
+├── Make Share Zip.bat         Owner only: builds the colleague zip
 ├── AGENTS.md                  Agent workflow notes (NeuroTrace)
 ├── .gitignore                 Keeps run data, secrets, caches and scratch out of git
 │
@@ -37,6 +42,7 @@ Kiro OOJ Automation/
 │   ├── edge-cases.md             Edge cases learned (#C*, #G*, #A* ...)
 │   ├── PRD-OOJ-Automation.md     Product requirements
 │   ├── changes.md                Changelog (newest at top)
+│   ├── dmaic-project.md          Lean Six Sigma DMAIC write-up
 │   └── project-structure.md      This file
 │
 ├── tools/                     All code (one module per source/stage)
@@ -59,8 +65,12 @@ Kiro OOJ Automation/
 │   ├── ooj_paths.py             Machine paths (OOJ_EDGE_PROFILE)
 │   ├── edge_preflight.py        Edge automation-profile checks
 │   ├── browser_blob_capture.py  In-page CSV blob capture helper (PNAMA/DSR QuickSight)
-│   ├── apply_remarks.py         Standalone CLI only (column P is now a live formula)
-│   ├── remark_rules.py          Historical Remark rules (used by apply_remarks + tests)
+│   ├── browser_signin.py        Browser sign-in check at Start (PNAMA/DSR)
+│   ├── dmaic_metrics.py         Stores each run's counts/timings; DMAIC control chart
+│   ├── health_check.py          Weekly health check (Run Health Check.bat)
+│   ├── launch.py                One-click launcher used by Start OOJ Web.bat
+│   ├── about.py                 Owner / version / support contact
+│   ├── build_share_zip.py       Builds the colleague zip (Make Share Zip.bat, owner only)
 │   │
 │   ├── web/                    The local one-click web runner
 │   │   ├── server.py              HTTP server (127.0.0.1) + routes
@@ -78,10 +88,9 @@ Kiro OOJ Automation/
 │   │                            Per-source caches — cleared at every fresh Start
 │   └── resolve_runs/          Resolve ticket outputs + reports (never cleaned; gitignored)
 │
-├── tests/                     Offline test suite (py -3.13 -m pytest tests -q) — 123 tests
+├── tests/                     Offline test suite (py -3.13 -m pytest tests -q) — 142 tests
 │
 ├── .kiro/steering/ooj-instructions.md   Standing operator rules for AI assistants
-├── .kiro/specs/full-project-bug-audit/  Open audit backlog (19 suspected defects, not yet fixed)
 └── .agents/                   Assistant scratch (gitignored). Keep: template-backup/ (template
                                before the P2 change), p-formula-row759.txt (used by a test).
 ```

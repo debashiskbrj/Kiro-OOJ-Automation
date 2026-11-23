@@ -35,8 +35,11 @@ PARTIAL_SUFFIXES = (".crdownload", ".tmp", ".partial")
 # Atomic-write sidecars look like ".<name>.<hex>.tmp" or ".<name>.<hex>.tmp.xlsx".
 _SIDECAR_RE = re.compile(r"^\..+\.[0-9a-f]{6,}\.tmp(\.[a-z0-9]+)?$", re.IGNORECASE)
 # Stale export leftovers this project creates that the PNAMA lane may read from ~/Downloads.
+# Fix (audit 1.3): "SearchResults*" is NOT here any more. That is SCC's own export name, and
+# since the SCC lane is manual the operator's exported SearchResults.csv in Downloads is
+# real work waiting to be uploaded; a server start/restart must never delete it.
 _DOWNLOAD_LEFTOVER_RE = re.compile(
-    r"^(SWA_repeat_Prox_Pnam|DSR_Raw_data|SearchResults).*\.(csv|xlsx|crdownload|tmp|partial)$",
+    r"^(SWA_repeat_Prox_Pnam|DSR_Raw_data).*\.(csv|xlsx|crdownload|tmp|partial)$",
     re.IGNORECASE,
 )
 

@@ -29,7 +29,9 @@ from pathlib import Path
 import openpyxl
 from openpyxl.utils import get_column_letter
 
-BUILDER_MCP = r"C:\Users\kabideba\AppData\Local\Toolbox\bin\builder-mcp.exe"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ooj_paths import BUILDER_MCP  # noqa: E402  (per-user %LOCALAPPDATA%\Toolbox path)
+
 OUT = Path(__file__).parent / "captures" / "tickets"
 OUT.mkdir(parents=True, exist_ok=True)
 LOG = OUT / "tickets_pull.log"
@@ -99,6 +101,7 @@ RE_APPROVER_TITLE = re.compile(
 # Shown when the only approvals on a ticket come from people who are not a CRM / Site Lead
 # (or whose Phonetool title could not be read), followed by their aliases in brackets.
 MANUAL_CHECK_LABEL = "Need check manually"
+UNREADABLE_LABEL = f"{MANUAL_CHECK_LABEL} (comments could not be read)"
 _RE_SENTENCE_SPLIT = re.compile(r"(?<=[.!?\n])\s+|\n+")
 _NEGATION_WINDOW = 40  # characters of the sentence immediately before the match to inspect
 _NEGATION_AFTER_WINDOW = 25  # characters of the sentence immediately after the match to inspect
@@ -383,8 +386,8 @@ def scan_approvals(mcp: McpStdio, tickets: list[dict], log) -> dict:
 
     NOTE: this adds ONE get-ticket round-trip per ticket (~1000 extra MCP round-trips on
     a full run), so the SIM-T step is inherently slower than before. Reuses the SAME live
-    McpStdio instance passed in. On ANY failure for a ticket the value is "" — never guess
-    or raise.
+    McpStdio instance passed in. On ANY failure for a ticket the value is UNREADABLE_LABEL
+    ("Need check manually (comments could not be read)") — never guess or raise.
     """
     approvals: dict[str, str] = {}
     titles: dict[str, str | None] = {}  # alias -> Phonetool job_title (one lookup per person)
@@ -395,6 +398,7 @@ def scan_approvals(mcp: McpStdio, tickets: list[dict], log) -> dict:
         return is_approver_title(titles[alias])
 
     n = len(tickets)
+    unreadable: list[str] = []
     for i, t in enumerate(tickets, 1):
         tid = t["id"]
         try:
@@ -403,9 +407,15 @@ def scan_approvals(mcp: McpStdio, tickets: list[dict], log) -> dict:
                           "maxCorrespondence": 100}})
             approvals[tid] = scan_approval(data.get("data", {}).get("comments", []), is_approver)
         except Exception:
-            approvals[tid] = ""  # never guess; blank on failure
+            # Fix (audit 1.15): never guess, but never stay silent either. A blank looked
+            # the same as "no approval mentioned", so flag the ticket for a manual check.
+            approvals[tid] = UNREADABLE_LABEL
+            unreadable.append(short_id(t) or tid)
         if i % 100 == 0 or i == n:
             log(f"approval scan: {i} / {n}")
+    if unreadable:
+        log(f"approval scan: {len(unreadable)} ticket(s) could not be read, marked "
+            f"'{UNREADABLE_LABEL}': {unreadable[:20]}")
     failed = sorted(a for a, title in titles.items() if title is None)
     approvers = sorted(a for a, title in titles.items() if is_approver_title(title))
     log(f"approval authors: {len(titles)} looked up on Phonetool, {len(approvers)} CRM/Site Lead"

@@ -21,12 +21,10 @@ Every public method returns a dict and never raises on a blocked precondition.
 """
 from __future__ import annotations
 
-import base64
 import os
 import subprocess
 import sys
 import threading
-import time
 from datetime import datetime
 from pathlib import Path
 

@@ -7,6 +7,8 @@
 tools/captures/
 tools/output/
 tools/resolve_runs/
+tools/health/
+tools/metrics/
 **/captures/
 *.download.tmp
 
@@ -21,8 +23,10 @@ credentials.json
 **/cookies*.json
 **/*token*.json
 
-# ── Local memory DB (binary, machine-local) ──
-.neurotrace/neurotrace.db
+# ── Local AI-assistant tooling (NeuroTrace DB, MCP configs, session token; NeuroTrace
+#    also regenerates .github/copilot-instructions.md by itself) ──
+.neurotrace/
+.github/copilot-instructions.md
 *.db-journal
 *.db-wal
 *.db-shm

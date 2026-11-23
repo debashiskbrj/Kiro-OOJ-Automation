@@ -31,7 +31,7 @@ from pathlib import Path
 import openpyxl
 
 import fill_template as ft
-from ooj_paths import EDGE_PROFILE
+from ooj_paths import BUILDER_MCP, EDGE_PROFILE
 
 HERE = Path(__file__).parent
 CAPTURES = HERE / "captures"
@@ -43,9 +43,6 @@ DESKTOP = Path.home() / "Desktop"
 # each fresh run (see wipe_old_runs). This prefix MUST stay in sync with
 # tools/web/run_controller.py's DESKTOP_EXPORT_PREFIX so the wipe matches what is published.
 DESKTOP_EXPORT_PREFIX = "Templete_OOJ Process_"
-# Local task history (run folders and per-source capture artifacts) is kept this many
-# days; anything older is deleted automatically at the start of each run.
-HISTORY_RETENTION_DAYS = 7
 # Operator rule (fresh Start): keep prior run folders and Desktop export workbooks for
 # this many days (anything older is deleted by wipe_old_runs). Per-source capture caches
 # are still wiped on every fresh Start so a run never reuses another run's data.
@@ -57,78 +54,6 @@ FINAL_COLUMNS = [
     "RTO Status", "Past delivered record", "Delivered Old shipment", "Old shipment delivered by Station",
     "SCC & misort Station validation", "Station Transfer Validation", "GCRS Agent Space",
 ]
-
-
-def prune_history(retention_days: int = HISTORY_RETENTION_DAYS, log=print) -> dict:
-    """Delete local task history older than the retention window.
-
-    Removes old run folders under captures/runs and old per-source capture artifacts
-    (screenshots, blob downloads, cached polygons) under captures/<source>/. Keeps
-    everything modified within the last ``retention_days`` days. Never touches source
-    code, the template, tests, or anything outside captures/. Safe if a file is locked.
-    """
-    if not CAPTURES.exists():
-        return {"removed_dirs": 0, "removed_files": 0}
-    cutoff = time.time() - retention_days * 86400
-    removed_dirs = 0
-    removed_files = 0
-
-    def _age_ok(path: Path) -> bool:
-        try:
-            return path.stat().st_mtime < cutoff
-        except OSError:
-            return False
-
-    cutoff_dt = datetime.now() - timedelta(days=retention_days)
-
-    def _name_is_old(name: str) -> bool | None:
-        """Parse a run folder's YYYYMMDD_HHMMSS name stamp; None if it doesn't parse."""
-        match = re.match(r"(\d{8}_\d{6})", name)
-        if not match:
-            return None
-        try:
-            return datetime.strptime(match.group(1), "%Y%m%d_%H%M%S") < cutoff_dt
-        except ValueError:
-            return None
-
-    # 1. Old run folders (each run is one dated directory under captures/runs). Prefer the
-    # timestamp in the folder name (reliable) and fall back to mtime if it doesn't parse.
-    if RUNS.exists():
-        for entry in RUNS.iterdir():
-            if entry.name == "_latest.txt":
-                continue
-            if entry.is_dir():
-                by_name = _name_is_old(entry.name)
-                is_old = by_name if by_name is not None else _age_ok(entry)
-                if is_old:
-                    shutil.rmtree(entry, ignore_errors=True)
-                    removed_dirs += 1
-            elif entry.is_file() and _age_ok(entry):
-                try:
-                    entry.unlink()
-                    removed_files += 1
-                except OSError:
-                    pass
-
-    # 2. Old per-source capture artifacts (screenshots, downloads, cached polygons).
-    # scc_enum_map.json is a long-lived overlay (accumulated SCC State enum->text ground
-    # truth), so it is kept regardless of age.
-    for source_dir in CAPTURES.iterdir():
-        if not source_dir.is_dir() or source_dir.name == "runs":
-            continue
-        for entry in source_dir.rglob("*"):
-            if entry.name == "scc_enum_map.json":
-                continue
-            if entry.is_file() and _age_ok(entry):
-                try:
-                    entry.unlink()
-                    removed_files += 1
-                except OSError:
-                    pass
-
-    log(f"history prune: removed {removed_dirs} old run folders and {removed_files} old files "
-        f"(older than {retention_days} days)")
-    return {"removed_dirs": removed_dirs, "removed_files": removed_files}
 
 
 def wipe_old_runs(current_dir: Path, log=print, keep_days: int = RUN_KEEP_DAYS) -> dict:
@@ -153,6 +78,13 @@ def wipe_old_runs(current_dir: Path, log=print, keep_days: int = RUN_KEEP_DAYS) 
     """
     if not CAPTURES.exists():
         return {"removed_dirs": 0, "removed_files": 0}
+    # DMAIC Control phase: copy every run's key numbers (counts/timings only) into
+    # tools/metrics/run_history.csv BEFORE old run folders are deleted. Never raises.
+    try:
+        import dmaic_metrics
+        dmaic_metrics.harvest(RUNS, log=log)
+    except Exception:
+        pass
     try:
         current_resolved = current_dir.resolve()
     except OSError:
@@ -197,8 +129,11 @@ def wipe_old_runs(current_dir: Path, log=print, keep_days: int = RUN_KEEP_DAYS) 
                     pass
 
     # 2. Every per-source capture artifact, keeping only the SCC enum ground-truth overlay.
+    # captures/post_comments/ is NOT a source cache: it holds the Post comments uploads and
+    # reports, the only record of which live SIM-T comments were posted, so it is kept
+    # (audit 1.4), the same as tools/resolve_runs/.
     for source_dir in CAPTURES.iterdir():
-        if not source_dir.is_dir() or source_dir.name == "runs":
+        if not source_dir.is_dir() or source_dir.name in ("runs", "post_comments"):
             continue
         for entry in source_dir.rglob("*"):
             if entry.name == "scc_enum_map.json":
@@ -378,10 +313,44 @@ def load_tech_data(path: Path) -> list[dict]:
         for row in csv.DictReader(fh):
             row = dict(row)
             for key in ("createdAt", "lastUpdatedAt"):
-                value = row.get(key)
-                row[key] = datetime.fromisoformat(value) if value else None
+                value = (row.get(key) or "").strip()
+                # Fix (audit 1.11): blank, "None" (older Phase A files) or an unreadable
+                # date becomes None instead of crashing Phase B before its first stage.
+                try:
+                    row[key] = datetime.fromisoformat(value) if value and value != "None" else None
+                except ValueError:
+                    row[key] = None
             rows.append(row)
     return rows
+
+
+def save_tech_data(run: "Run", rows: list[dict]) -> None:
+    """Write tech_data.csv for Phase B. Fix (audit 1.11): a missing SIM-T date is written
+    as "" (not "None"), so load_tech_data reads it back as a blank date."""
+    def _text(value):
+        return "" if value is None else str(value)
+
+    run.save_csv("tech_data.csv", [{**r, "createdAt": _text(r.get("createdAt")),
+                                    "lastUpdatedAt": _text(r.get("lastUpdatedAt"))} for r in rows])
+
+
+def carry_over_phase_a(run: "Run") -> None:
+    """Fix (audit 1.7): Phase B starts a fresh summary, which used to drop Phase A's
+    preflight / SIM-T results, so the SIM-T card showed "pending" for the rest of the run.
+    Copy them from Phase A's saved summary (summary_phase_a.json, else summary.json)."""
+    for name in ("summary_phase_a.json", "summary.json"):
+        try:
+            previous = json.loads((run.dir / name).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        stages = previous.get("stages") or {}
+        for stage in ("preflight", "tickets"):
+            if isinstance(stages.get(stage), dict):
+                run.summary["stages"][stage] = stages[stage]
+        for key in ("preflight", "tickets"):
+            if key in previous:
+                run.summary[key] = previous[key]
+        return
 
 
 def preflight(run: Run, require_midway: bool = True, require_builder_mcp: bool = True):
@@ -403,7 +372,7 @@ def preflight(run: Run, require_midway: bool = True, require_builder_mcp: bool =
         "edge_profile": EDGE_PROFILE.exists(),
         "edge_profile_processes": edge_profile_processes,
         "template": ft.TEMPLATE.exists(),
-        "builder_mcp": Path(r"C:\Users\kabideba\AppData\Local\Toolbox\bin\builder-mcp.exe").exists(),
+        "builder_mcp": Path(BUILDER_MCP).exists(),
     }
     run.log(f"preflight: {checks}")
     run.summary["preflight"] = checks
@@ -440,8 +409,7 @@ def pull_tickets(run: Run, max_pages: int | None):
     run.log(f"tickets: {len(tickets)} / totalResults {total} (complete={complete}); rows={len(rows)}")
     if not complete and not max_pages:
         raise RuntimeError(f"ticket pull incomplete: {len(tickets)} of {total}")
-    run.save_csv("tech_data.csv", [{**r, "createdAt": str(r["createdAt"]), "lastUpdatedAt": str(r["lastUpdatedAt"])}
-                                   for r in rows])
+    save_tech_data(run, rows)
     run.summary["tickets"] = {"tickets": len(tickets), "total_at_fetch": total, "rows": len(rows)}
     return rows
 
@@ -727,28 +695,6 @@ def fill_and_recalc(
     return out
 
 
-def finalize_remarks(run: Run, xlsx: Path, tech_rows: list[dict]):
-    """Rewrite Working Sheet column P to its final literal value per the operator's
-    AF -> AD -> AG rules, preserving the six protected remarks. Runs after recalc and
-    read_back so AF/AD/AG hold computed values and the integrity check has passed."""
-    import apply_remarks
-
-    summary = apply_remarks.apply_to_file(xlsx, xlsx, last_row=len(tech_rows) + 1)
-    # Sanity: every Tech_Data row must have been processed (no silent row loss).
-    if summary["rows"] != len(tech_rows):
-        raise RuntimeError(
-            f"remark rules processed {summary['rows']} rows but Tech_Data has "
-            f"{len(tech_rows)}"
-        )
-    run.summary["remarks_applied"] = {
-        "rows": summary["rows"],
-        "protected": summary["protected"],
-        "written": summary["written"],
-    }
-    run.log(f"remarks applied: {json.dumps(run.summary['remarks_applied'], default=str)}")
-    return summary
-
-
 def read_back(
     run: Run,
     xlsx: Path,
@@ -963,6 +909,7 @@ def main():
         run = Run(Path(args.resume_dir).name, directory=Path(args.resume_dir))
         print(f"RUN_DIR={run.dir}", flush=True)
         run.log(f"=== OOJ daily run {run.stamp} RESUMED (Phase B) after manual SCC upload")
+        carry_over_phase_a(run)
         tech = load_tech_data(run.dir / "tech_data.csv")
         tids = [
             line
@@ -1030,6 +977,9 @@ def main():
             ]
         run.log(f"lookup TIDs: {len(tids)}; ordered Tech_Data rows: {len(tech)}")
         (run.dir / "tids.txt").write_text("\n".join(tids), encoding="utf-8")
+        # Fix (audit 1.17): Phase B reloads tech_data.csv, so it must hold exactly the rows
+        # this phase kept: also after --max-tids filtering and for --tids-file runs.
+        save_tech_data(run, tech)
 
         if args.stop_after_tickets:
             # Phase A stops here, before the SCC stage. The web controller's Phase B
@@ -1176,14 +1126,13 @@ def main():
         # template's own P2 formula (the operator's complete remark formula, including the
         # #N/A / LM-to-reattempt AF->AG->Valid rules), translated down unchanged by
         # fill_template.extend_working_sheet, so the operator can trace every remark in the formula bar and
-        # the recalc'd file still shows the correct final value. apply_remarks is retained
-        # only as a standalone CLI utility.
+        # the recalc'd file still shows the correct final value.
 
     run.write_progress()
     run.log(f"=== done. Workbook: {xlsx}")
     failed = [name for name, value in run.summary["stages"].items() if value.get("ok") is False]
     # In partial mode the intentionally-blanked source lanes are expected to have failed;
-    # only treat OTHER stage failures (fill/recalc/read_back/apply_remarks) as a run error.
+    # only treat OTHER stage failures (fill/recalc/read_back) as a run error.
     blank_sources = set(run.summary.get("blank_sources") or [])
     unexpected = [name for name in failed if name not in blank_sources]
     if unexpected:

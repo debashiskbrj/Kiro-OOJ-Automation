@@ -1,0 +1,12 @@
+OOJ Process Automation
+Owner & author: KABIDEBA (SWA India - Automation)
+
+Conceived, designed, developed and maintained by KABIDEBA.
+All credit for this automation belongs to KABIDEBA.
+
+Internal Amazon use only. Do not redistribute outside Amazon.
+Do not modify or republish without the owner's permission.
+Corrections, fixes and new versions are provided by the owner only.
+
+Help / problems / corrections: kabideba@amazon.com
+Phonetool: https://phonetool.amazon.com/users/kabideba

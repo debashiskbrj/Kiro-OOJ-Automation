@@ -344,9 +344,9 @@ timeline
 | Item | Description | Status |
 |---|---|---|
 | Gated write-back | Post comments (dry run first) and bulk Resolve ticket, each behind a confirmation | Done (2026-10 / 2026-11); NOC raise not built |
-| Audit backlog | 19 suspected defects in `.kiro/specs/full-project-bug-audit/` (SCC-export deletion by the sanitizer, post-comments records wiped at Start, pause/resume UI gaps, …) | Open |
-| Config-driven endpoints/paths | Move remaining hard-coded endpoints into one settings module/env | Partially done (Edge profile centralized) |
-| Portability | Make all machine-specific paths configurable for a second operator | Candidate |
+| Audit backlog | 19 suspected defects from the full-project audit | Done (2026-11-23): all fixed or confirmed fixed, tests in `tests/test_audit_fixes.py` |
+| Config-driven endpoints/paths | Move remaining hard-coded endpoints into one settings module/env | Partially done (per-user paths in `tools/ooj_paths.py`) |
+| Portability | Make all machine-specific paths configurable for a second operator | Done (2026-11-18): colleague zip, per-user paths |
 | Shared normalizer | One `normalize_tid` across all modules (removes a rare DOC-case edge) | Proposed |
 | Headless ADS | Replace the Streamlit UI driver with a batch endpoint if the model team exposes one | Dependent on model team |
 

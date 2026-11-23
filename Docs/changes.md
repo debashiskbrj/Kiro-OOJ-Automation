@@ -5,6 +5,58 @@ code added/changed. Details belong in the other docs; this is the timeline.
 
 ---
 
+- **2026-11-23** — FIX + CLEANUP (v1.3.0). All remaining audit items fixed, with tests in
+  `tests/test_audit_fixes.py`: **1.2** CX Address Check no longer says MISMATCH for state
+  codes (PB, DL, KL, TG, MH…) or city names; a real wrong-zone state is still caught.
+  **1.4** a new Start keeps `captures/post_comments/` (Post comments reports). **1.6** before
+  continuing after the SCC upload, Midway and the Edge profile are checked again; a problem
+  gives a clear message and the SCC file can be uploaded again. **1.7** after the SCC upload
+  the SIM-T card keeps its "done" result. **1.8** the main Stop button works while the run is
+  paused for SCC. **1.10** a failed run shows a red "The run failed at: …" banner. **1.12**
+  Approval in Comments (AI) is written even when Polygon is skipped. **1.13** a run without
+  ADS approval is labelled PARTIAL (file name `…_KABIDEBA1_PARTIAL_<stamp>.xlsx`, banner,
+  Start text). **1.14** the GCRS Agentspaces sheet header is on row 1; TIDs are numbers.
+  **1.15** a ticket whose comments cannot be read is marked "Need check manually (comments
+  could not be read)" and counted in the log. **1.16** a zero-row DSR export no longer
+  crashes. **1.17** `tech_data.csv` is written from the final rows (CLI `--max-tids` /
+  `--tids-file`). Removed unused code and files: `tools/apply_remarks.py`,
+  `tools/remark_rules.py`, `tests/test_remark_rules.py`, `run_daily.prune_history` /
+  `finalize_remarks`, `pnama_export._wait_for_file`, `run_controller._sha256`, unused
+  imports, the finished audit spec `.kiro/specs/full-project-bug-audit/`, and the dropped
+  hosting plan. `.neurotrace/` (local assistant tooling, contains a session token) and the
+  generated `.github/copilot-instructions.md` are no longer tracked in git. Workbook
+  formulas and remarks unchanged.
+
+- **2026-11-22** — FIX (v1.2.0), audit items from `.kiro/specs/full-project-bug-audit/`:
+  **1.3** server start/restart no longer deletes the operator's SCC export
+  `SearchResults*.csv` from Downloads (`sanitize_captures.py`). **1.5** a failed SIM-T step
+  (Phase A exit ≠ 0 or no `tech_data.csv`) now shows "stopped at the SIM-T step" and offers
+  Start again, instead of a false "Paused — upload SCC" (new `scc_phase` value
+  `phase_a_failed`, new additive `/status` key `start_error`; Stop during Phase A returns to
+  idle). **1.9** reloading or reopening the page re-attaches to a running, paused or
+  finished run (`app.js reattachToRun`). **1.11** a ticket with a missing date is written as
+  blank and read back safely (`run_daily.pull_tickets` / `load_tech_data`). Workbook/report
+  unchanged. Tests: `tests/test_audit_fixes.py`. Still open: 1.2, 1.4, 1.6–1.8, 1.10, 1.12–1.17.
+
+- **2026-11-22** — DMAIC (v1.1.0): `Docs/dmaic-project.md` (STAR summary, charter, CTQ,
+  SIPOC, measured after-numbers, Pareto of data gaps, fishbone, DPMO, value stream, control
+  plan; manual baseline left [TO FILL]). New `tools/dmaic_metrics.py`: stores each run's
+  counts/timings (no TIDs) in `tools/metrics/run_history.csv` before the 3-day wipe
+  (called from `wipe_old_runs` and the weekly health check) and builds an I-MR control
+  chart summary shown in the health report. Workbook/report unchanged. Standing rule:
+  answer with STAR + DMAIC. Tests: `tests/test_dmaic_metrics.py`.
+
+- **2026-11-18** — SHARING (v1.0.0): colleagues can run their own copy from a zip with no
+  Kiro/LLM. New: `READ ME FIRST.txt`, `NOTICE.txt`, `VERSION`, `tools/about.py` (owner
+  KABIDEBA + contact), `tools/launch.py` (finds an already-running page instead of starting
+  a 2nd server; weekly health check), `tools/health_check.py` + `Run Health Check.bat`
+  (weekly bug-fix run: safe auto-fixes, template check, self-test, report in `tools/health/`),
+  `tools/build_share_zip.py` + `Make Share Zip.bat`. `Start OOJ Web.bat` now finds Python
+  (offers winget install). Per-user paths in `tools/ooj_paths.py` (BUILDER_MCP, EDGE_PROFILE
+  auto-created, USER_ALIAS; owner's paths unchanged); polygon `operator` = runner's alias.
+  `pandas` added to auto-installed packages. Page footer/header show owner contact. The
+  workbook/report is unchanged. Tests: `tests/test_share_package.py`.
+
 - **2026-11-18** — TEMPLATE: new template `Docs/Templete_OOJ Process_Date_Month_KABIDEBA.xltx`
   (renamed; the old `..._Date_September_...` template was removed by the operator). It adds a
   `DSR Data` sheet with the DSR Raw data headers. `fill_template.write_dsr_data()` now saves
