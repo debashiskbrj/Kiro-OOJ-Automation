@@ -5,6 +5,14 @@ code added/changed. Details belong in the other docs; this is the timeline.
 
 ---
 
+- **2026-11-23** — TEMPLATE FIX (v1.3.1, operator-approved): in the Working Sheet Remark
+  formula (P2..P6) every `V<n>="REVERSE"` became `IFNA(V<n>,"")="REVERSE"` (14 places).
+  A TID with no EagleEye row used to make `OR(...)` return #N/A, so a Delivered shipment got
+  "Valid"; now it gets "Not Valid - Delivered" (and OOR / DS-DS likewise). Only the sheet
+  XML text was edited (pivots/array formulas kept); backup in `.agents/template-backup/`.
+  Checked in real Excel: Delivered, Cash At Station, OOR, DS-DS without EagleEye and RTO
+  with REVERSE all give the right remark. Test: `test_template_remark_ignores_missing_eagleeye_row`.
+
 - **2026-11-23** — FIX + CLEANUP (v1.3.0). All remaining audit items fixed, with tests in
   `tests/test_audit_fixes.py`: **1.2** CX Address Check no longer says MISMATCH for state
   codes (PB, DL, KL, TG, MH…) or city names; a real wrong-zone state is still caught.

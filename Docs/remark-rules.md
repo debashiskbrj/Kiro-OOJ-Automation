@@ -16,6 +16,10 @@ operator's complete remark formula:
   so their `#N/A` never reaches P;
 - otherwise the inner formula's own value (Delivered / OOR / DS-DS / RTO / SWA /
   pin-code checks).
+- V2 (EagleEye type) is read as `IFNA(V2,"")="REVERSE"` (operator-approved fix,
+  2026-11-23). Before, a TID with no EagleEye row made `OR(...)` return `#N/A`, so a
+  Delivered shipment fell through to "Valid". Now it always gets its Delivered / OOR /
+  DS-DS remark. Backup of the template before this change: `.agents/template-backup/`.
 
 The code never wraps or rebuilds it: `fill_template.extend_working_sheet` translates P2
 down to every row and **refuses to run if P2 lacks `IFERROR(AF2,"")`** (stale-template

@@ -232,6 +232,24 @@ def test_tech_data_written_from_final_rows(tmp_path):
     assert len(rows) == 1 and rows[0]["createdAt"].day == 23 and rows[0]["lastUpdatedAt"] is None
 
 
+# ---------------------------------------------------------------- template P2 / EagleEye
+def test_template_remark_ignores_missing_eagleeye_row():
+    """Operator-approved template fix (2026-11-23): V2 (EagleEye type) is read through
+    IFNA(V2,"") so a TID with no EagleEye row still gets its Delivered / OOR / DS-DS
+    remark instead of falling through to "Valid"."""
+    import re
+    import openpyxl
+    import fill_template as ft
+
+    wb = openpyxl.load_workbook(ft.TEMPLATE)
+    try:
+        p2 = wb[ft.SHEET_WORK]["P2"].value.text
+    finally:
+        wb.close()
+    assert p2.count('IFNA(V2,"")="REVERSE"') == 6
+    assert not re.search(r'(?<![A-Za-z_(])V2="REVERSE"', p2)
+
+
 # ---------------------------------------------------------------- 1.11
 def test_ticket_without_dates_does_not_crash_phase_b(tmp_path):
     path = tmp_path / "tech_data.csv"
