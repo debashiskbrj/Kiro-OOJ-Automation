@@ -84,20 +84,61 @@ class ResolveController:
                 "unique": len(self._checked["ids"]), "pieces": self._checked["pieces"],
                 "duplicates": self._checked["duplicates"],
                 "invalid": self._checked["invalid"]}, indent=2), encoding="utf-8")
-            cmd = [sys.executable, "-X", "utf8", str(RUNNER), "--input", str(out_dir / "ids.txt"),
-                   "--out-dir", str(out_dir)]
-            log = open(out_dir / "run.log", "a", encoding="utf-8")
-            creationflags = (subprocess.CREATE_NEW_PROCESS_GROUP | NO_WINDOW) if os.name == "nt" else 0
-            self._proc = subprocess.Popen(cmd, cwd=str(TOOLS), stdout=log, stderr=subprocess.STDOUT,
-                                          text=True, creationflags=creationflags)
-            log.close()
-            self._out_dir = out_dir
-            self._stopped = False
-            self._report = None
+            total = self._spawn(out_dir)
             # A list is used once: the next run needs a fresh Check list.
             self._checked = None
-            return {"started": True, "total": sum(1 for _ in (out_dir / "ids.txt").read_text(
-                encoding="utf-8").splitlines() if _.strip())}
+            return {"started": True, "total": total}
+
+    def _spawn(self, out_dir: Path) -> int:
+        """Start the runner on ``out_dir/ids.txt`` (caller holds the lock). Returns the count."""
+        cmd = [sys.executable, "-X", "utf8", str(RUNNER), "--input", str(out_dir / "ids.txt"),
+               "--out-dir", str(out_dir)]
+        log = open(out_dir / "run.log", "a", encoding="utf-8")
+        creationflags = (subprocess.CREATE_NEW_PROCESS_GROUP | NO_WINDOW) if os.name == "nt" else 0
+        self._proc = subprocess.Popen(cmd, cwd=str(TOOLS), stdout=log, stderr=subprocess.STDOUT,
+                                      text=True, creationflags=creationflags)
+        log.close()
+        self._out_dir = out_dir
+        self._stopped = False
+        self._report = None
+        return sum(1 for line in (out_dir / "ids.txt").read_text(encoding="utf-8").splitlines()
+                   if line.strip())
+
+    # ----------------------------------------------------------------- retry
+    def retry_ids(self) -> list[str]:
+        """Tickets of the latest run that are NOT done: every Failed one, plus every ticket
+        with no result (the run was stopped, or it ended before the ticket was verified).
+        Resolved and Already-resolved tickets are never included."""
+        if not self._out_dir or self.is_running():
+            return []
+        ids_path = self._out_dir / "ids.txt"
+        if not ids_path.exists():
+            return []
+        all_ids = [line.strip() for line in ids_path.read_text(encoding="utf-8").splitlines()
+                   if line.strip()]
+        result_by_id = {r.get("Ticket ID"): r.get("Result") for r in self._results()}
+        done = {rtr.RESULT_RESOLVED, rtr.RESULT_ALREADY}
+        return [t for t in all_ids if result_by_id.get(t) not in done]
+
+    def retry_failed(self) -> dict:
+        """Start a NEW run on only the failed / not-done tickets of the latest run."""
+        with self._lock:
+            if self.is_running():
+                return {"started": False, "reason": "A resolve run is already in progress"}
+            if not self._out_dir:
+                return {"started": False, "reason": "There is no earlier resolve run to retry"}
+            ids = self.retry_ids()
+            if not ids:
+                return {"started": False, "reason": "No failed or pending tickets to retry"}
+            out_dir = RT_ROOT / (datetime.now().strftime("%Y%m%d_%H%M%S") + "_retry")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / "ids.txt").write_text("\n".join(ids), encoding="utf-8")
+            (out_dir / "input_check.json").write_text(json.dumps({
+                "unique": len(ids), "pieces": len(ids), "duplicates": 0, "invalid": [],
+                "retry_of": self._out_dir.name}, indent=2), encoding="utf-8")
+            total = self._spawn(out_dir)
+            self._checked = None
+            return {"started": True, "total": total, "retry_of": out_dir.name}
 
     def stop(self) -> dict:
         with self._lock:
@@ -141,7 +182,7 @@ class ResolveController:
                   "has_run": self._out_dir is not None, "total": 0, "done": 0,
                   "counts": {rtr.RESULT_RESOLVED: 0, rtr.RESULT_ALREADY: 0, rtr.RESULT_FAILED: 0},
                   "finished": False, "rows": [], "log_tail": [], "input": {},
-                  "report_ready": False}
+                  "report_ready": False, "retry_count": 0}
         if not self._out_dir:
             return status
         try:
@@ -166,7 +207,9 @@ class ResolveController:
                        "checked": progress.get("checked", 0), "sent": progress.get("sent", 0),
                        "to_verify": progress.get("to_verify", 0),
                        "rows": rows_sorted[:MAX_TABLE_ROWS], "input": self._input_check(),
-                       "report_ready": (not running) and (bool(rows) or bool(progress.get("finished")))})
+                       "report_ready": (not running) and (bool(rows) or bool(progress.get("finished"))),
+                       # Failed + not-done tickets the "Retry failed / pending" button would redo.
+                       "retry_count": len(self.retry_ids())})
         log_path = self._out_dir / "run.log"
         if log_path.exists():
             status["log_tail"] = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-log_tail:]

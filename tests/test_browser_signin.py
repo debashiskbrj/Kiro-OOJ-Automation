@@ -64,6 +64,58 @@ def test_already_signed_in_does_not_ask(monkeypatch):
     assert not any("needs Midway" in line for line in lines)
 
 
+def test_wait_is_capped_at_20_seconds():
+    assert bs.SIGNIN_TIMEOUT_S == 20
+
+
+def test_gives_up_when_login_never_clears(monkeypatch):
+    monkeypatch.setattr(bs, "POLL_S", 0)
+    lines = []
+    url = "https://us-east-1.quicksight.aws.amazon.com/sn/account/amazonbi/dashboards/x"
+    assert bs._wait_signed_in(FakePage(10**9), url, "PNAMA", lines.append, timeout_s=0.2) is False
+    assert any("not signed in" in line for line in lines)
+
+
+def _fake_playwright(monkeypatch, page):
+    import playwright.sync_api as pw
+
+    class Ctx:
+        pages = [page]
+        def close(self):
+            pass
+
+    class Chromium:
+        def launch_persistent_context(self, **_):
+            return Ctx()
+
+    class P:
+        chromium = Chromium()
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(pw, "sync_playwright", lambda: P())
+
+
+def test_signed_in_logs_accepted_message(monkeypatch):
+    monkeypatch.setattr(bs, "POLL_S", 0)
+    _fake_playwright(monkeypatch, FakePage(0))
+    lines = []
+    result = bs.ensure_signed_in(log=lines.append)
+    assert result["ok"] is True and result["dsr"] is True
+    assert any(bs.ACCEPTED_MSG in line for line in lines)
+
+
+def test_not_confirmed_logs_warning_and_continues(monkeypatch):
+    monkeypatch.setattr(bs, "POLL_S", 0)
+    _fake_playwright(monkeypatch, FakePage(10**9))
+    lines = []
+    result = bs.ensure_signed_in(log=lines.append, timeout_s=0.2)
+    assert result["ok"] is False and result["error"] is None
+    assert any(bs.NOT_CONFIRMED_MSG in line for line in lines)
+
+
 def test_never_raises_when_browser_cannot_start(monkeypatch):
     import playwright.sync_api as pw
 

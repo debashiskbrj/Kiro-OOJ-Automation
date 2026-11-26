@@ -97,6 +97,7 @@
         <div class="btn-row">
           <button id="rt-start-btn" class="danger" disabled>Resolve tickets</button>
           <button id="rt-stop-btn" class="danger" disabled>Stop</button>
+          <button id="rt-retry-btn" type="button" class="ghost" disabled title="Re-runs ONLY the failed / not-done tickets of the last run">Retry failed / pending</button>
         </div>
         <p id="rt-state" class="state"></p>
       </div>
@@ -133,7 +134,7 @@
         <div class="btn-row">
           <button id="pc-post-btn" class="danger" disabled>Post comments to tickets</button>
           <button id="pc-stop-btn" class="danger" disabled>Stop posting</button>
-          <button id="pc-retry-btn" type="button" class="ghost" disabled>Retry failed</button>
+          <button id="pc-retry-btn" type="button" class="ghost" disabled title="Re-posts ONLY the failed / not-yet-attempted URLs; posted ones are never repeated">Retry failed / pending</button>
         </div>
         <p id="pc-post-state" class="state"></p>
       </div>

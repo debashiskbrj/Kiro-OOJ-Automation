@@ -383,3 +383,12 @@ pre { border: 1px solid var(--line); }
 @media (max-width: 380px) {
   .sources { grid-template-columns: 1fr; }
 }
+
+/* --- popup for the browser Midway check at Start --------------------------- */
+.toast {
+  position: fixed; top: 20px; right: 20px; z-index: 1000; max-width: 380px;
+  padding: 14px 18px; border-radius: 10px; color: #fff; font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+.toast.ok { background: var(--ok); }
+.toast.warn { background: var(--warn); }

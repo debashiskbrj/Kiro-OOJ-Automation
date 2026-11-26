@@ -16,7 +16,7 @@ Playwright/Edge, so it is only ever reached through an explicit operator gate:
                                    report row failed, one pass, no blocking prompts.
 
 The comment-posting flow is adapted (not copied) from the operator's reference script
-``C:\Users\kabideba\Documents\TT_Automation\post_comments.py``: same per-url grouped
+``TT_Automation\post_comments.py`` (in the owner's Documents folder): same per-url grouped
 comment format ``TID: {tid} | {remark}``, same selectors, same multi-selector +
 empty-textbox verification loop, same incremental same-day Status==Success dedup for
 crash recovery. The reference script's blocking ``input()`` retry-until-no loop is
@@ -336,31 +336,46 @@ def run_confirmed(input_path: Path, out_dir: Path) -> dict:
 
 
 # --------------------------------------------------------------- retry-failed
+def _report_rows(out_dir: Path) -> list[dict]:
+    """Every row of the report in ``out_dir`` (any date); [] when there is none."""
+    report = out_dir / "post_comments_report.xlsx"
+    if not report.exists():
+        return []
+    try:
+        return pd.read_excel(report).to_dict("records")
+    except Exception:  # noqa: BLE001 — unreadable report: nothing to retry from
+        return []
+
+
+def retry_targets(all_groups: list[dict], rows: list[dict]) -> tuple[set, set]:
+    """(failed_urls, pending_urls) for a retry.
+
+    failed  = a url with a Failed row and NO Success row (a later Success means done).
+    pending = a url of the uploaded file with NO report row at all (the pass was stopped
+              or crashed before reaching it, so nothing was ever attempted for it).
+    A url that already has a Success row is never in either set, so it is never re-posted.
+    """
+    failed = {str(r["URL"]) for r in rows if str(r.get("Status", "")).startswith("Failed")}
+    success = {str(r["URL"]) for r in rows if str(r.get("Status", "")) == "Success"}
+    attempted = {str(r["URL"]) for r in rows}
+    wanted = {str(g["url"]) for g in all_groups}
+    return failed - success, wanted - attempted
+
+
 def run_retry_failed(input_path: Path, out_dir: Path) -> dict:
-    """Re-run only urls whose latest today-dated report row failed, one pass."""
+    """Re-run only the failed urls and the never-attempted (pending) urls, one pass."""
     out_dir.mkdir(parents=True, exist_ok=True)
     _emit(f"RUN_DIR={out_dir}")
 
     def select(all_groups, directory):
-        _completed, seed = _completed_urls_today(directory)
-        failed_urls = {
-            str(row["URL"])
-            for row in seed
-            if str(row.get("Status", "")).startswith("Failed")
-        }
-        # A url is still failed only if its latest today row is a failure (a later
-        # Success for the same url means it is already done).
-        success_urls = {
-            str(row["URL"])
-            for row in seed
-            if str(row.get("Status", "")) == "Success"
-        }
-        retry_urls = failed_urls - success_urls
-        _emit(f"retry targets: {len(retry_urls)} failed url(s)")
+        rows = _report_rows(directory)
+        failed_urls, pending_urls = retry_targets(all_groups, rows)
+        retry_urls = failed_urls | pending_urls
+        _emit(f"retry targets: {len(failed_urls)} failed url(s), {len(pending_urls)} pending url(s)")
         pending = [g for g in all_groups if g["url"] in retry_urls]
         # Carry forward every existing row except the failed ones we are re-posting
         # (those get fresh rows appended by the posting pass).
-        kept = [row for row in seed if str(row["URL"]) not in retry_urls]
+        kept = [row for row in rows if str(row["URL"]) not in failed_urls]
         return pending, kept
 
     return _launch_and_post(input_path, out_dir, select)

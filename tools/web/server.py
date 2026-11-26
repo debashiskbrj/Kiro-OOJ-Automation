@@ -15,6 +15,7 @@ Endpoints
   POST /restart       -> stops any run, relaunches a fresh server on the same port
   POST /resolve/check -> parse pasted TT URLs into unique ticket IDs (local only)
   POST /resolve/start -> LIVE: resolve the checked tickets (needs {"confirmed": true})
+  POST /resolve/retry-failed -> LIVE: re-run ONLY the failed / not-done tickets (needs {"confirmed": true})
   POST /resolve/stop  -> stop the resolve run
   GET  /resolve/status, /resolve/report-download
 
@@ -312,6 +313,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"started": False, "reason": "Tick the confirmation box first"}, status=409)
                 return
             result = rsc.CONTROLLER.start()
+            self._send_json(result, status=200 if result.get("started") else 409)
+            return
+        if route == "/resolve/retry-failed":
+            # LIVE write, but ONLY the failed / not-done tickets of the latest run.
+            if self._read_body().get("confirmed") is not True:
+                self._send_json({"started": False, "reason": "Confirm the retry first"}, status=409)
+                return
+            result = rsc.CONTROLLER.retry_failed()
             self._send_json(result, status=200 if result.get("started") else 409)
             return
         if route == "/resolve/stop":

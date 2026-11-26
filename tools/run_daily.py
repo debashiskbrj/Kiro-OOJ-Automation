@@ -195,6 +195,38 @@ def csv_safe(value):
     return value
 
 
+def scc_lookup_tids(scc_rows) -> list[str]:
+    """Unique, ordered TIDs of the uploaded SCC file: the ONLY TIDs any lane looks up
+    (operator rule 2026-11-26)."""
+    return list(dict.fromkeys(
+        normalize_tid(row.get("Tracking ID"))
+        for row in (scc_rows or [])
+        if normalize_tid(row.get("Tracking ID"))
+    ))
+
+
+SCC_MISMATCH_TAG = "WARNING: SCC file does not match SIM-T"  # app.js shows a popup for it
+
+
+def scc_match_check(scc_tids, sim_tids) -> dict:
+    """Compare the uploaded SCC TIDs with the SIM-T TIDs. Never stops the run: returns the
+    counts and a warning line ("" when every SCC TID is also a SIM-T TID)."""
+    scc_set = set(scc_tids)
+    sim_set = set(sim_tids)
+    matching = len(scc_set & sim_set)
+    not_in_sim = sorted(scc_set - sim_set)
+    warning = ""
+    if scc_set and not matching:
+        warning = (f"{SCC_MISMATCH_TAG}: NONE of the {len(scc_set)} SCC TIDs are in today's SIM-T "
+                   f"tickets (e.g. SCC {not_in_sim[0]}). Probably an old or wrong SCC file. "
+                   "The run continues; check the SCC upload.")
+    elif not_in_sim:
+        warning = (f"{SCC_MISMATCH_TAG}: {len(not_in_sim)} of {len(scc_set)} SCC TIDs are not in "
+                   f"today's SIM-T tickets (e.g. {', '.join(not_in_sim[:3])}). They are looked up "
+                   "but have no ticket row. The run continues.")
+    return {"matching": matching, "not_in_sim_t": len(not_in_sim), "warning": warning}
+
+
 def derive_tids(tech: list[dict]) -> list[str]:
     """Unique, ordered lookup TIDs from Tech_Data rows (drops "TID not found")."""
     tids = [
@@ -496,7 +528,8 @@ def load_scc_csv(run: Run, tids: list[str], scc_csv_path: str) -> list[dict]:
     returned = {normalize_tid(row.get("Tracking ID")) for row in rows}
     missing = [tid for tid in tids if normalize_tid(tid) not in returned]
     run.summary["scc"] = {"requested": len(tids), "rows": len(rows), "missing": len(missing)}
-    run.log(f"SCC (manual upload): accepted {len(rows)} output rows; missing/no-data={len(missing)}")
+    run.log(f"SCC (manual upload): accepted {len(rows)} output rows; "
+            f"SIM-T TIDs not in the SCC file={len(missing)}")
     return rows
 
 
@@ -591,18 +624,59 @@ def lane_dsr(run: Run, tids):
     return rows
 
 
-def lane_polygon(run: Run, gcrs_result, scc_rows, tech_rows, session):
+POLYGON_NOT_IN_SCC = "Error — TID not in SCC file (not checked)"
+
+
+def polygon_pairs_from_scc(scc_rows, tech_rows, dsr_rows=None) -> list[tuple[str, str]]:
+    """(TID, station) pairs for the polygon check: ONLY the uploaded SCC file's TIDs
+    (operator rule 2026-11-26), unique and in SCC order. Station = SCC Source when it is a
+    real 4-character code, else the DSR station_code for that TID (same rule as Working
+    Sheet E), else the ticket's SIM-T station code (a station, not a TID)."""
+    tech_station = {}
+    for row in tech_rows or []:
+        tid = normalize_tid(row.get("impacted_tracking_ids"))
+        if tid and tid not in tech_station:
+            tech_station[tid] = str(row.get("station_code") or "").strip().upper()
+    dsr_station = ft.dsr_station_map(dsr_rows)
+    sources: dict[str, str] = {}
+    for row in scc_rows or []:
+        tid = normalize_tid(row.get("Tracking ID"))
+        if not tid:
+            continue
+        source = str(row.get("Source") or "").strip().upper()
+        if tid not in sources or (source and not sources[tid]):
+            sources[tid] = source
+    return [(tid, ft.effective_station(src, dsr_station.get(tid), tech_station.get(tid, "")))
+            for tid, src in sources.items()]
+
+
+def align_polygon_rows(scc_results: list[dict], tech_rows) -> list[dict]:
+    """One polygon row per Working Sheet (SIM-T ticket) row, matched by TID. A ticket whose
+    TID is not in the SCC file was never checked and says so."""
+    by_tid = {normalize_tid(row.get("Tracking ID")): row for row in scc_results}
+    aligned = []
+    for row in tech_rows:
+        tid_text = str(row.get("impacted_tracking_ids") or "").strip()
+        hit = by_tid.get(normalize_tid(tid_text))
+        if hit is not None:
+            aligned.append({"Tracking ID": tid_text, "Station": hit.get("Station", ""),
+                            "GCRS Status": hit.get("GCRS Status", ""),
+                            "CX Address Check": hit.get("CX Address Check", "")})
+        else:
+            aligned.append({"Tracking ID": tid_text,
+                            "Station": str(row.get("station_code") or "").strip().upper(),
+                            "GCRS Status": POLYGON_NOT_IN_SCC, "CX Address Check": ""})
+    return aligned
+
+
+def lane_polygon(run: Run, gcrs_result, scc_rows, tech_rows, session, dsr_rows=None):
     import tid_polygon_checker as checker
 
-    scc_station = {
-        normalize_tid(row.get("Tracking ID")): str(row.get("Source") or "").strip().upper()
-        for row in (scc_rows or [])
-    }
-    pairs = []
-    for row in tech_rows:
-        tid = str(row.get("impacted_tracking_ids") or "").strip()
-        station = scc_station.get(normalize_tid(tid)) or str(row.get("station_code") or "").strip().upper()
-        pairs.append((tid, station))
+    pairs = polygon_pairs_from_scc(scc_rows, tech_rows, dsr_rows)
+    fixed = sum(1 for row in scc_rows or [] if not ft.is_station_code(row.get("Source")))
+    if fixed:
+        run.log(f"polygon: {fixed} SCC row(s) have no valid 4-character Source station; "
+                "using the DSR station_code for those TIDs")
     inputs = checker.build_inputs_from_pairs(pairs)
     boundary_run = checker.run_boundary_check(
         inputs,
@@ -612,9 +686,14 @@ def lane_polygon(run: Run, gcrs_result, scc_rows, tech_rows, session):
         refresh_polygons=True,
         gcrs_result=gcrs_result,
     )
-    rows = [result.as_row() for result in boundary_run.results]
+    scc_results = [result.as_row() for result in boundary_run.results]
+    run.save_csv("polygon_scc.csv", scc_results)  # = the TID_Polygon_Check file content
+    rows = align_polygon_rows(scc_results, tech_rows)
     if len(rows) != len(tech_rows):
         raise RuntimeError(f"polygon row-count mismatch: {len(rows)} vs Tech_Data {len(tech_rows)}")
+    not_checked = sum(row["GCRS Status"] == POLYGON_NOT_IN_SCC for row in rows)
+    run.log(f"polygon: checked {len(scc_results)} SCC TIDs; {not_checked} ticket row(s) have a TID "
+            "that is not in the SCC file (marked 'not checked')")
     run.save_csv("polygon.csv", rows)
     polygon_workbook = run.dir / f"TID_Polygon_Check_{run.stamp}.xlsx"
     _, verification = checker.write_results_xlsx(boundary_run, polygon_workbook, overwrite=True)
@@ -687,11 +766,26 @@ def fill_and_recalc(
     )
     run.log(f"template filled: {json.dumps({k: v for k, v in stats.items() if k != 'working'}, default=str)}")
     res = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-                          str(HERE / "recalc_excel.ps1"), "-Path", str(out)], capture_output=True, text=True, timeout=1800,
+                          str(HERE / "recalc_excel.ps1"), "-Path", str(out),
+                          "-PivotRows", str(len(tech))], capture_output=True, text=True, timeout=1800,
                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))  # no console flash
     if "RECALC_OK" not in res.stdout:
         raise RuntimeError(f"Excel recalc failed: {res.stderr[:300]}")
     run.log("Excel recalculation done")
+    # Remark Summary pivot (operator request 2026-11-24). Never fatal.
+    pivot_line = next((line for line in res.stdout.splitlines() if line.startswith("PIVOT_")), "")
+    if pivot_line == "PIVOT_OK":
+        run.log("Remark Summary sheet added (pivot: volume per Remark)")
+    else:
+        run.log(f"WARNING: Remark Summary pivot not added ({pivot_line or 'no result'}); workbook is otherwise complete")
+    # Rule B Bucket column (operator spec 2026-11-25): plain-text bucket for every Valid
+    # row, next empty Working Sheet column (AJ). Needs the recalculated values. Never fatal.
+    try:
+        import rule_b_bucket
+        run.summary["rule_b_bucket"] = rule_b_bucket.apply(out, log=run.log)
+    except Exception as exc:
+        run.log(f"WARNING: Rule B Bucket column not added ({type(exc).__name__}: {str(exc)[:200]}); "
+                "workbook is otherwise complete")
     return out
 
 
@@ -916,7 +1010,8 @@ def main():
             for line in (run.dir / "tids.txt").read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
-        run.log(f"Phase B: loaded {len(tech)} Tech_Data rows and {len(tids)} lookup TIDs from disk")
+        run.log(f"Phase B: loaded {len(tech)} Tech_Data rows and {len(tids)} SIM-T ticket TIDs from disk "
+                "(lookups will use the SCC file's TIDs)")
     else:
         run = Run(datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
         # Make the active run directory discoverable to an external supervisor (the local
@@ -949,9 +1044,10 @@ def main():
         ) is None:
             sys.exit(2)
         # Browser sign-in for the QuickSight lanes (PNAMA + DSR) while the operator is at
-        # the laptop: opens the automation Edge window, waits for PIN + YubiKey only if a
-        # login page shows, then closes by itself. Never fatal — PNAMA/DSR keep their own
-        # login wait. The Edge profile is free here (preflight checked it).
+        # the laptop: opens the automation Edge window, waits at most 20 s for the dashboard
+        # (Midway is picked up by the browser itself), then closes and the page pops up
+        # "Browser accepted Midway". Never fatal — PNAMA/DSR keep their own login wait.
+        # The Edge profile is free here (preflight checked it).
         if not args.skip_browser_signin and not {"pnama", "dsr"} <= skip:
             try:
                 import browser_signin
@@ -975,7 +1071,7 @@ def main():
                 if str(row["impacted_tracking_ids"]) in selected
                 or row["impacted_tracking_ids"] == "TID not found"
             ]
-        run.log(f"lookup TIDs: {len(tids)}; ordered Tech_Data rows: {len(tech)}")
+        run.log(f"SIM-T ticket TIDs (search these in SCC): {len(tids)}; ordered Tech_Data rows: {len(tech)}")
         (run.dir / "tids.txt").write_text("\n".join(tids), encoding="utf-8")
         # Fix (audit 1.17): Phase B reloads tech_data.csv, so it must hold exactly the rows
         # this phase kept: also after --max-tids filtering and for --tids-file runs.
@@ -1023,32 +1119,53 @@ def main():
     else:
         scc = []
 
+    # OPERATOR RULE (2026-11-26): every TID lookup (EagleEye, PNAMA, DSR, GCRS, ADS,
+    # Polygon) uses ONLY the TIDs of the operator's uploaded SCC file (already cleaned:
+    # incorrect and duplicate TIDs removed). SIM-T TIDs are never looked up; SIM-T still
+    # supplies the ticket rows (URL, Short ID, dates, comments). No SCC TIDs = no lookups.
+    lookup_tids = scc_lookup_tids(scc)
+    if not lookup_tids and "scc" not in skip:
+        run.log("STOPPED: the uploaded SCC file has no Tracking IDs. TID lookups use ONLY the "
+                "SCC file, so nothing can be looked up. Upload the SCC export and run again.")
+        run.summary["publication_blocked"] = {"failed_required": ["scc"], "skipped_required": [],
+                                              "reason": "no TIDs in the uploaded SCC file"}
+        run.write_progress()
+        sys.exit(1)
+    if not lookup_tids:
+        lookup_tids = tids  # developer CLI only (--skip scc); the web page always uploads SCC
+    sim_set = set(map(normalize_tid, tids))
+    sim_only = len(sim_set - set(lookup_tids))
+    run.log(f"TID lookups use the SCC file only: {len(lookup_tids)} TIDs "
+            f"({len(tids)} ticket TIDs in SIM-T; {sim_only} of them are not in the SCC file "
+            "and are not looked up)")
+    # The SCC file is the SIM-T TID list after cleaning, so every SCC TID should also be a
+    # SIM-T TID. If not, HIGHLIGHT it (log + page popup) but keep running (operator rule).
+    match = scc_match_check(lookup_tids, sim_set)
+    if match["warning"]:
+        run.log(match["warning"])
+    run.summary["lookup_tids"] = {"source": "scc", "count": len(lookup_tids),
+                                  "sim_t_tids": len(tids), "sim_t_not_in_scc": sim_only,
+                                  "scc_not_in_sim_t": match["not_in_sim_t"],
+                                  "scc_matching_sim_t": match["matching"]}
+    (run.dir / "lookup_tids.txt").write_text("\n".join(lookup_tids), encoding="utf-8")
+
     # Step 2: EagleEye (API) starts now and overlaps the remaining browser lanes.
     if "eagle" not in skip:
         def _run_eagle():
-            concurrent["eagle"] = run.stage("eagle", lane_eagle, run, tids) or []
+            concurrent["eagle"] = run.stage("eagle", lane_eagle, run, lookup_tids) or []
         t = threading.Thread(target=_run_eagle, name="eagle-lane", daemon=True)
         t.start(); threads.append(t)
 
     # Remaining serial browser lanes (shared Edge profile) on the main thread.
-    pnama = run.stage("pnama", lane_pnama, run, tids) if "pnama" not in skip else []
-    dsr = run.stage("dsr", lane_dsr, run, tids) if "dsr" not in skip else []
+    pnama = run.stage("pnama", lane_pnama, run, lookup_tids) if "pnama" not in skip else []
+    dsr = run.stage("dsr", lane_dsr, run, lookup_tids) if "dsr" not in skip else []
 
     for t in threads:
         t.join()
     eagle = concurrent["eagle"]
 
-    # GCRS input = the genuine TIDs SCC returned, in order, de-duplicated. If SCC was
-    # skipped or produced nothing, fall back to the full ticket list so GCRS still runs.
-    scc_tids = list(dict.fromkeys(
-        normalize_tid(row.get("Tracking ID"))
-        for row in (scc or [])
-        if normalize_tid(row.get("Tracking ID"))
-    ))
-    gcrs_input = scc_tids if scc_tids else tids
-    if "scc" not in skip:
-        run.log(f"GCRS/Polygon/ADS input = {len(gcrs_input)} SCC-resolved TIDs "
-                f"(from {len(tids)} ticket TIDs)")
+    # GCRS (and from it ADS + Polygon) = the same SCC lookup list. No SIM-T fallback.
+    gcrs_input = lookup_tids
 
     gcrs_result = None
     polygon_rows = []
@@ -1059,7 +1176,7 @@ def main():
             gcrs_result = run.stage("gcrs", lane_gcrs, run, gcrs_input, siw_session)
             if gcrs_result is not None and "polygon" not in skip:
                 polygon_rows = run.stage(
-                    "polygon", lane_polygon, run, gcrs_result, scc, tech, siw_session,
+                    "polygon", lane_polygon, run, gcrs_result, scc, tech, siw_session, dsr,
                 ) or []
             run.summary["siw_transport"] = siw_session.summary()
         finally:

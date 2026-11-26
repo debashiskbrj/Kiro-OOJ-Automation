@@ -720,10 +720,13 @@ def _counts_for(name: str, summary: dict) -> dict:
 
 
 def _total_requested(run_dir: Path) -> int:
-    """How many lookup TIDs this run is processing (denominator for progress %)."""
-    tids = run_dir / "tids.txt"
-    if tids.exists():
-        return sum(1 for line in tids.read_text(encoding="utf-8").splitlines() if line.strip())
+    """How many lookup TIDs this run is processing (denominator for progress %). Since
+    2026-11-26 lookups use the SCC file's TIDs (lookup_tids.txt); before Phase B writes that
+    file, fall back to the SIM-T ticket TIDs (tids.txt)."""
+    for name in ("lookup_tids.txt", "tids.txt"):
+        path = run_dir / name
+        if path.exists():
+            return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
     return 0
 
 

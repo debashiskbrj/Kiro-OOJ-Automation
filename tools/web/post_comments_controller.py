@@ -31,6 +31,8 @@ from pathlib import Path
 import run_controller as rc
 
 TOOLS = Path(__file__).resolve().parent.parent
+if str(TOOLS) not in sys.path:
+    sys.path.insert(0, str(TOOLS))  # post_comments_runner (retry counts) lives here
 RUNNER = TOOLS / "post_comments_runner.py"
 PC_ROOT = TOOLS / "captures" / "post_comments"
 UPLOADS = PC_ROOT / "uploads"
@@ -60,6 +62,7 @@ class PostCommentsController:
         self._uploaded_filename: str | None = None
         self._last_out_dir: Path | None = None
         self._stopped: bool = False
+        self._retry_cache: tuple | None = None
 
     # --------------------------------------------------------------- lifecycle
     def is_running(self) -> bool:
@@ -209,10 +212,41 @@ class PostCommentsController:
             report = self._last_out_dir / "post_comments_report.xlsx"
             if not report.exists():
                 return {"started": False, "reason": "No report to retry yet"}
-            if not self._report_has_failures(report):
-                return {"started": False, "reason": "No failed rows to retry"}
+            failed, pending = self._retry_counts()
+            if failed + pending == 0:
+                return {"started": False, "reason": "No failed or pending rows to retry"}
             self._spawn("retry-failed", self._last_out_dir)
-            return {"started": True, "out_dir": str(self._last_out_dir)}
+            return {"started": True, "out_dir": str(self._last_out_dir),
+                    "failed": failed, "pending": pending}
+
+    def _retry_counts(self) -> tuple[int, int]:
+        """(failed urls, pending urls) the retry button would redo; (0, 0) while running or
+        before any posting pass left a report. Pending = urls of the uploaded file that the
+        pass never reached. Cached per (report, upload) file times — the page polls this."""
+        out_dir = self._last_out_dir
+        if out_dir is None or self.is_running():
+            return 0, 0
+        report = out_dir / "post_comments_report.xlsx"
+        try:
+            key = (str(out_dir), report.stat().st_mtime,
+                   self._uploaded_path.stat().st_mtime if self._uploaded_path else None)
+        except OSError:
+            return 0, 0
+        if self._retry_cache and self._retry_cache[0] == key:
+            return self._retry_cache[1]
+        try:
+            import post_comments_runner as pcr
+
+            rows = pcr._report_rows(out_dir)
+            groups = []
+            if self._uploaded_path is not None and self._uploaded_path.exists():
+                groups = pcr.parse_workbook(self._uploaded_path)["groups"]
+            failed, pending = pcr.retry_targets(groups, rows)
+            counts = (len(failed), len(pending))
+        except Exception:
+            counts = (1, 0) if self._report_has_failures(report) else (0, 0)
+        self._retry_cache = (key, counts)
+        return counts
 
     # ------------------------------------------------------------------- stop
     def stop(self) -> dict:
@@ -292,7 +326,10 @@ class PostCommentsController:
         report = out_dir / "post_comments_report.xlsx" if out_dir else None
         report_available = bool(report and report.exists())
         ready, _reason = self._dry_run_ready()
+        retry_failed, retry_pending = self._retry_counts() if report_available else (0, 0)
         return {
+            "retry_failed_count": retry_failed,
+            "retry_pending_count": retry_pending,
             "running": running,
             "stopped": self._stopped and not running,
             "mode": self._mode if running else (self._mode if self._mode else None),

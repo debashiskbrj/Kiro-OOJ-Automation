@@ -427,6 +427,39 @@ function renderLog(lines) {
   const pre = $("log");
   pre.textContent = lines.join("\n");
   pre.scrollTop = pre.scrollHeight;
+  showSigninPopup(lines);
+}
+
+// Browser Midway check at Start (tools/browser_signin.py): pop up its result once per
+// log line, so the operator sees it without reading the live log.
+const shownSigninLines = new Set();
+function showSigninPopup(lines) {
+  lines.forEach((line) => {
+    if (shownSigninLines.has(line)) return;
+    let text = null, kind = null;
+    if (line.includes("Browser accepted Midway")) {
+      text = "Browser accepted Midway \u2014 next process starting automatically.";
+      kind = "ok";
+    } else if (line.includes("Browser Midway not confirmed")) {
+      text = "Browser Midway not confirmed in 20 s \u2014 run continues; " +
+        "PNAMA/DSR will ask in the Edge window if needed.";
+      kind = "warn";
+    }
+    let ms = 6000;
+    if (!text && line.includes("WARNING: SCC file does not match SIM-T")) {
+      // Highlight only; the run keeps going (operator rule 2026-11-26). Stays 20 s.
+      text = line.slice(line.indexOf("WARNING: SCC file"));
+      kind = "warn";
+      ms = 20000;
+    }
+    if (!text) return;
+    shownSigninLines.add(line);
+    const toast = document.createElement("div");
+    toast.className = "toast " + kind;
+    toast.textContent = text;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), ms);
+  });
 }
 
 async function renderTable() {
@@ -718,10 +751,14 @@ async function pcTick() {
   $("pc-stop-btn").disabled = !status.running;
   const hasReport = !!status.report_available;
   $("pc-report-download-btn").disabled = !hasReport;
-  // Offer retry only once a posting pass has finished and left failures behind.
-  const rows = status.report_rows || [];
-  const hasFailures = rows.some((r) => String(r.Status || "").startsWith("Failed"));
-  $("pc-retry-btn").disabled = status.running || !hasFailures;
+  // Offer retry only once a posting pass has finished and left failed or never-reached
+  // (pending) URLs behind. Posted ones are never retried.
+  const retryFailed = status.retry_failed_count || 0;
+  const retryPending = status.retry_pending_count || 0;
+  const retryTotal = retryFailed + retryPending;
+  $("pc-retry-btn").disabled = status.running || retryTotal === 0;
+  $("pc-retry-btn").textContent = retryTotal > 0
+    ? "Retry failed / pending (" + retryTotal + ")" : "Retry failed / pending";
 
   if (!status.running && pcPollTimer && status.mode) {
     // A pass finished; keep polling lightly so a later retry/report still updates,
@@ -846,6 +883,11 @@ $("pc-stop-btn").addEventListener("click", async () => {
   $("pc-post-state").textContent = "Posting stopped.";
 });
 $("pc-retry-btn").addEventListener("click", async () => {
+  if (!confirm("Retry the failed / pending URLs now?\n\nOnly URLs that failed or were never reached " +
+      "are posted again. URLs already posted are not repeated.\n\nNote: a \"Failed - No Confirmation\" " +
+      "URL may already have the comment on the ticket \u2014 check it in SIM-T first if unsure.")) {
+    return;
+  }
   $("pc-retry-btn").disabled = true;
   $("pc-post-state").textContent = "Retrying failed tickets\u2026";
   const { ok, data } = await postJSON("/post-comments/retry-failed", {});
@@ -867,11 +909,19 @@ $("pc-report-download-btn").addEventListener("click", () => {
 let rtChecked = false;
 let rtPollTimer = null;
 
+let rtRetryCount = 0;
+
 function rtRefreshStartButton(status) {
   const running = status ? !!status.running : false;
+  if (status) rtRetryCount = status.retry_count || 0;
   $("rt-start-btn").disabled = running || !rtChecked || !$("rt-confirm-check").checked;
   $("rt-stop-btn").disabled = !running;
   $("rt-check-btn").disabled = running;
+  // Retry is offered only when a finished/stopped run left failed or not-done tickets.
+  const retry = $("rt-retry-btn");
+  retry.disabled = running || rtRetryCount === 0;
+  retry.textContent = rtRetryCount > 0
+    ? "Retry failed / pending (" + rtRetryCount + ")" : "Retry failed / pending";
 }
 
 $("rt-input").addEventListener("input", () => {
@@ -932,6 +982,25 @@ $("rt-start-btn").addEventListener("click", async () => {
   rtChecked = false;
   $("rt-confirm-check").checked = false;
   $("rt-state").textContent = "Resolving " + data.total + " ticket(s)\u2026";
+  rtStartPolling();
+});
+
+$("rt-retry-btn").addEventListener("click", async () => {
+  if (!confirm("Retry " + rtRetryCount + " failed / not-done ticket(s) now?\n\n" +
+      "Only those tickets are sent again (status Resolved, closure code Successful). " +
+      "Tickets that are already resolved are not touched.")) {
+    return;
+  }
+  $("rt-retry-btn").disabled = true;
+  $("rt-state").textContent = "Starting the retry\u2026";
+  const { ok, data } = await postJSON("/resolve/retry-failed", { confirmed: true });
+  if (!ok || !data.started) {
+    $("rt-state").textContent = "Could not retry: " + (data.reason || "unknown");
+    rtTick();
+    return;
+  }
+  rtRetryCount = 0;
+  $("rt-state").textContent = "Retrying " + data.total + " ticket(s)\u2026";
   rtStartPolling();
 });
 

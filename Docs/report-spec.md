@@ -11,7 +11,7 @@ current understanding; the user will confirm/adjust "from where what to pull".
 | 2 | CreateDate | SIM-T | `createDate` | WORKING |
 | 3 | LastUpdatedDate | SIM-T | `lastUpdatedDate` | WORKING |
 | 4 | TID | SIM-T | one per row; regex `DOC\d+|\b\d{12}\b` over description; `TID not found` if none | WORKING |
-| 5 | Station Code(SCC) | SCC | `source` (template: SCC col D "Source") | WORKING |
+| 5 | Station Code(SCC) | SCC, else DSR | SCC col D "Source" when it is a 4-character letter/digit code, else DSR Data col Q `station_code` by TID (formula, 2026-11-26) | WORKING |
 | 6 | Zone | DSR dashboard | lookup/export by TID → `zone`; missing/blank source data remains blank | WORKING — CURRENT LIVE SNAPSHOT VERIFIED |
 | 7 | State | SCC | `currentPackageState` | WORKING |
 | 8 | Destination | SCC | `destination` | WORKING |
@@ -31,7 +31,13 @@ current understanding; the user will confirm/adjust "from where what to pull".
 | 22 | Old shipment delivered by Station | PNAMA | `reference_station` (col CJ) | WORKING |
 | 23 | SCC & misort Station validation | computed | `Old shipment delivered by Station == Station Code(SCC)` | — |
 | 24 | Station Transfer Validation | computed | Station & Sub Station parent/child rule (template col AF) | AVAILABLE |
-| 25 | GCRS Agent Space | local SIW polygon checker | row-aligned status from `tools\tid_polygon_checker.py`; exact Inside text is `Invalid - It is Inside Jurisdiction as per GCRS Tool` | WORKING; LIVE AUTO-FALLBACK + XLSX VERIFIED 2026-09-18 |
+| 25 | GCRS Agent Space | local SIW polygon checker | status from `tools\tid_polygon_checker.py` for the SCC TIDs, matched to each row by TID (a TID not in SCC: `Error — TID not in SCC file (not checked)`); exact Inside text is `Invalid - It is Inside Jurisdiction as per GCRS Tool` | WORKING |
+
+Added after the template's 33 columns (plain values written by the automation, no formula):
+AH **CX Address Check** (customer address zone vs station zone, from the polygon checker),
+AI **Approval in Comments** (SIM-T comments + Phonetool title, `Docs/approval-in-comments.md`),
+AJ **Rule B Bucket (Pincode + GCRS Address)** (`tools/rule_b_bucket.py`). The workbook also
+gets a **Remark Summary** sheet (pivot: volume per Remark).
 
 (25 rows because the user's list has 25 headers; "Destination" and "CX Pincode" had
 trailing spaces in the template.)
@@ -55,5 +61,5 @@ the pincode/ADS/transfer logic.
 
 - Final ordering/formatting, sheet name, any summary block.
 - Exact DSR dashboard field name containing Zone (to be captured during recon).
-- Whether "Station Code(SCC)" should use SCC `Source` (template/manual understanding)
-  or SCC `Station/currentStationCode` if those differ.
+- (Decided 2026-11-26) "Station Code(SCC)" uses SCC `Source`, falling back to the DSR
+  `station_code` when Source is not a real 4-character station code.

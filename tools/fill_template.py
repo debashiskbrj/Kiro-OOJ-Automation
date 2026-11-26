@@ -45,6 +45,41 @@ TECH_COLS = ["Sl", "case_id", "createdAt", "lastUpdatedAt", "station_code", "zon
 # Working Sheet columns whose formulas must NOT be extended (dropped from scope).
 SKIP_WORK_COLS = {"F", "G", "H", "W", "X", "Y", "Z", "AA"}
 
+# A real station code is exactly 4 letters/digits (e.g. NZMF, BRU1). SCC's Source sometimes
+# holds a 10-digit number or a long ID instead (operator rule 2026-11-26): then the station
+# comes from the DSR export's station_code for that TID.
+_STATION_RE = re.compile(r"^[A-Z0-9]{4}$")
+_STATION_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+
+def is_station_code(value) -> bool:
+    return bool(_STATION_RE.match(str(value or "").strip().upper()))
+
+
+def effective_station(scc_source, dsr_station, ticket_station="") -> str:
+    """Station used for the polygon check, same rule as Working Sheet E: SCC Source when it
+    is a valid 4-character code, else DSR station_code when valid, else SCC Source as is,
+    else the ticket's SIM-T station code."""
+    scc = str(scc_source or "").strip().upper()
+    if is_station_code(scc):
+        return scc
+    dsr = str(dsr_station or "").strip().upper()
+    if is_station_code(dsr):
+        return dsr
+    return scc or str(ticket_station or "").strip().upper()
+
+
+def station_formula(row: int = 2, dsr_station_col: int = 17) -> str:
+    """Working Sheet E formula (operator rule 2026-11-26): SCC Source by TID when it is a
+    4-character letter/digit code, otherwise DSR Data station_code by TID; if the TID is not
+    in DSR (or DSR is blank) the SCC value stays, so a TID missing from SCC still shows #N/A."""
+    scc = f"VLOOKUP(D{row},'{SHEET_SCC}'!A:D,4,0)"
+    letter = get_column_letter(dsr_station_col)
+    dsr = f"VLOOKUP(D{row},'{SHEET_DSR}'!A:{letter},{dsr_station_col},0)"
+    valid = (f"IFERROR(AND(LEN(TRIM({scc}))=4,SUMPRODUCT(--ISNUMBER(FIND(MID(UPPER(TRIM({scc})),"
+             f"{{1,2,3,4}},1),\"{_STATION_CHARS}\")))=4),FALSE)")
+    return f"=IF({valid},{scc},IFERROR(IF({dsr}&\"\"=\"\",{scc},{dsr}),{scc}))"
+
 
 def num(v):
     """Digits-only strings -> int (so Excel lookups match); everything else unchanged."""
@@ -305,7 +340,16 @@ def dsr_zone_column(ws) -> int:
     return 22
 
 
-def extend_working_sheet(ws, n_rows: int, use_dsr_zone: bool = False, dsr_zone_col: int = 22) -> dict:
+def dsr_station_column(ws) -> int:
+    """1-based column of 'station_code' in the DSR Data header row (17 = Q in the template)."""
+    for cell in ws[1]:
+        if _header_key(cell.value) == "station_code":
+            return cell.column
+    return 17
+
+
+def extend_working_sheet(ws, n_rows: int, use_dsr_zone: bool = False, dsr_zone_col: int = 22,
+                         dsr_station_col: int = 17) -> dict:
     """Translate the TEMPLATE'S row-2 formulas to rows 2..n_rows+1.
 
     Column P is never reimplemented or wrapped in Python: the template's P2 carries the
@@ -346,6 +390,9 @@ def extend_working_sheet(ws, n_rows: int, use_dsr_zone: bool = False, dsr_zone_c
         # like the template's =VLOOKUP(D2,'DSR Data'!A:V,22,0). Only column I; P is untouched.
         zone_letter = get_column_letter(dsr_zone_col)
         originals["I"] = ("formula", f"=VLOOKUP(D2,'{SHEET_DSR}'!A:{zone_letter},{dsr_zone_col},0)")
+        # Operator rule (2026-11-26): E = SCC Source when it is a real 4-character station
+        # code, else DSR Data station_code for the same TID (visible formula, like I).
+        originals["E"] = ("formula", station_formula(2, dsr_station_col))
     last_row = max(ws.max_row, n_rows + 1)
     for r in range(2, last_row + 1):
         for cell in ws[r]:
@@ -375,20 +422,35 @@ def _normalized_tid_text(value) -> str:
     return text.upper() if text.upper().startswith("DOC") else text
 
 
-def validate_polygon_rows(tech_rows, scc_rows, polygon_rows) -> dict[str, int]:
+def dsr_station_map(dsr_rows) -> dict[str, str]:
+    """TID -> DSR station_code (first row wins, like Excel's VLOOKUP)."""
+    out: dict[str, str] = {}
+    for row in dsr_rows or []:
+        tid = _normalized_tid_text(row.get("tracking_id"))
+        if tid and tid not in out:
+            out[tid] = str(row.get("station_code") or "").strip().upper()
+    return out
+
+
+def validate_polygon_rows(tech_rows, scc_rows, polygon_rows, dsr_rows=None) -> dict[str, int]:
     """Verify exact ordered TID/effective-station identity and status coverage."""
     if len(polygon_rows) != len(tech_rows):
         raise ValueError(f"polygon rows must align with Tech_Data: {len(polygon_rows)} != {len(tech_rows)}")
 
-    scc_station: dict[str, str] = {}
+    dsr_station = dsr_station_map(dsr_rows)
+    scc_source: dict[str, str] = {}
     for row in scc_rows:
         tid = _normalized_tid_text(row.get("Tracking ID"))
         station = str(row.get("Source") or "").strip().upper()
-        if not tid or not station:
+        if not tid:
             continue
-        if tid in scc_station and scc_station[tid] != station:
+        if station and scc_source.get(tid) and scc_source[tid] != station:
             raise ValueError(f"conflicting SCC Source stations for TID {tid}")
-        scc_station[tid] = station
+        if station or tid not in scc_source:
+            scc_source[tid] = station
+    # Effective station per TID: SCC Source if valid, else DSR station_code (same rule as E);
+    # "" falls back to the ticket's station code below.
+    scc_station = {tid: effective_station(src, dsr_station.get(tid)) for tid, src in scc_source.items()}
 
     counts = {"inside": 0, "outside": 0, "errors": 0}
     for index, (tech_row, polygon_row) in enumerate(zip(tech_rows, polygon_rows), start=1):
@@ -425,7 +487,7 @@ def fill(template: Path, out_path: Path, tech_rows, scc_rows, eagle_rows, missor
     dsr_rows_provided = dsr_rows is not None
     dsr_rows = dsr_rows or []
     polygon_rows = polygon_rows or []
-    polygon_counts = validate_polygon_rows(tech_rows, scc_rows, polygon_rows) if polygon_rows else {
+    polygon_counts = validate_polygon_rows(tech_rows, scc_rows, polygon_rows, dsr_rows) if polygon_rows else {
         "inside": 0,
         "outside": 0,
         "errors": 0,
@@ -449,6 +511,7 @@ def fill(template: Path, out_path: Path, tech_rows, scc_rows, eagle_rows, missor
         len(tech_rows),
         use_dsr_zone=dsr_rows_provided,
         dsr_zone_col=dsr_zone_column(wb[SHEET_DSR]),
+        dsr_station_col=dsr_station_column(wb[SHEET_DSR]),
     )
     working_sheet = wb[SHEET_WORK]
     if polygon_rows:

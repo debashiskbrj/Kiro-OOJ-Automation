@@ -44,6 +44,11 @@ Last reviewed: 2026-11-16.
 - After the upload, the SCC card offers **Stop run (keep SIM-T data)**; after stopping, **Rerun with
   same file** or upload a new file. SIM-T is never pulled again for that run.
 - Wrong/invalid TIDs = no data returned, which is NOT a failure.
+- **TID source rule (2026-11-26):** every TID lookup (EagleEye, PNAMA, DSR, GCRS, ADS,
+  Polygon) uses ONLY the TIDs in the operator's uploaded SCC file (already cleaned of
+  incorrect + duplicate TIDs). Never look up SIM-T TIDs, on any day, and never fall back to
+  them. SIM-T still gives ticket rows, URL, Short ID, dates, comments. No SCC TIDs = stop.
+  SCC TIDs not matching SIM-T = highlight only (log WARNING + page popup), never stop.
 
 ### Polygon check
 - Fetch each station's polygon EXACTLY ONCE. No retries.
@@ -85,8 +90,16 @@ Last reviewed: 2026-11-16.
 ## Template / output
 - Never delete Working Sheet columns. Deleting columns shifts the grid and breaks formulas.
 - Full template = 33 Working Sheet columns (A..AG). Automation adds AH = CX Address Check, AI = Approval
-  in Comments; next free column is AJ.
+  in Comments, AJ = Rule B Bucket (Pincode + GCRS Address); next free column is AK.
+- Rule B Bucket (2026-11-25, `tools/rule_b_bucket.py`): Valid rows only, plain text
+  Customer Bucket / Amazon Bucket / Manual Review, rules in order B1+B2, B3, B5, B4, B6, B7.
+  Buckets must add up to the Valid count in P. Reference: Valid 494 = 345 + 78 + 71.
 - Column P (Remark) stays a visible formula copied from the template P2 — never flatten it to values.
+- Column E (Station Code(SCC), 2026-11-26): SCC Source if it is a 4-character letter/digit
+  code, else VLOOKUP of the TID in 'DSR Data' column Q (station_code). Polygon uses the same
+  station rule.
+- `Remark Summary` sheet (2026-11-24): PivotTable of volume per Remark (P), largest first,
+  added by `tools/recalc_excel.ps1` after the recalc. Non-fatal if it fails.
 - Output name: `Templete_OOJ Process_<Month>_KABIDEBA1_<stamp>.xlsx` (`PARTIAL_` before the stamp for partial runs).
 
 ## Retention
@@ -119,7 +132,11 @@ Last reviewed: 2026-11-16.
 ## Operating reminders
 - Two Midway steps: terminal `mwinit -o` (Grant Midway) for SIM-T/EagleEye/GCRS, and the
   browser sign-in check that Start runs automatically (`tools/browser_signin.py`): the
-  automation Edge window opens on PNAMA/DSR, asks for PIN + YubiKey only if needed, then
-  closes by itself and the run continues. Keep it non-fatal and read-only.
+  automation Edge window opens on PNAMA, waits at most 20 s (operator decision 2026-11-24:
+  the browser picks up Midway by itself), closes, and the page pops up "Browser accepted
+  Midway"; the run continues automatically. Keep it non-fatal and read-only.
+- QuickSight saves each user's last filter state on the dashboard; the automation's Edge
+  profile is the same user. Until an automatic reset is built, the operator resets the
+  PNAMA and DSR dashboards (Reset / clear filters) before each run.
 - Sign in to SCC in your normal browser.
 - Deployment is local-per-person (each operator uses their own Midway/Edge); no hosted service.

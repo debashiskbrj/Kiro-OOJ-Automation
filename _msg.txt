@@ -1,0 +1,16 @@
+v1.4.0: SCC-only TID lookups, Rule B, Remark Summary, retry buttons, station fallback
+
+- v1.3.2/1.3.3: browser Midway check waits max 20 s + page popup
+- v1.3.3: Remark Summary sheet (pivot: volume per Remark)
+- v1.3.4: Working Sheet AJ "Rule B Bucket (Pincode + GCRS Address)" (tools/rule_b_bucket.py)
+- v1.3.5: Resolve ticket - longer backoff after gateway 403
+- v1.3.6: "Retry failed / pending" buttons for Resolve ticket and Post comments
+- v1.3.7: every TID lookup uses ONLY the uploaded SCC file's TIDs; blank SCC stops,
+  SCC/SIM-T mismatch is highlighted only
+- v1.3.8: Polygon checks the SCC TIDs, matched back to ticket rows by TID
+- v1.3.9: Working Sheet E falls back to DSR station_code when SCC Source is not a
+  4-character station code (polygon uses the same station)
+- v1.4.0: full project check, docs updated, template column D formatting kept
+  (operator edit; formulas unchanged)
+
+Tests: 195 passed. Health check: OK.

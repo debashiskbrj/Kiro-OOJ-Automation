@@ -185,12 +185,22 @@ transport (one workbook, saved automatically).
 5. Approval-in-comments scan (CRM / Site Lead approval detection).
 6. DSR raw data saved in the workbook (`DSR Data` sheet) for traceability.
 7. Shareable zip, weekly health check, per-user paths.
+8. Browser Midway check at Start capped at 20 s (was up to 10 min), with a page popup
+   "Browser accepted Midway" (v1.3.2, 2026-11-24). Time saved per run: **[TO FILL]**.
+9. Remark Summary pivot sheet: volume per remark is visible on opening the workbook, no
+   manual pivot needed (v1.3.3). Time saved per run: **[TO FILL]**.
+10. Rule B Bucket column (AJ): every Valid ticket classified as Customer / Amazon / Manual
+   Review from pincode, probability, station and GCRS address signals (v1.3.4). First
+   check (2026-11-24 data): 494 Valid = 345 Customer (70%), 78 Amazon (16%), 71 Manual (14%).
 
 ### Next improvement candidates (from Analyze)
 
 1. Split polygon errors by cause, then target the biggest one.
 2. Find out why mcscli returns HTTP 302 (it forces the slower Edge path for GCRS).
 3. Collect the manual baseline to prove the savings.
+4. QuickSight keeps each user's saved dashboard filters, so PNAMA/DSR can silently return
+   fewer rows. Today the operator resets both dashboards by hand before a run; candidate:
+   automatic Reset + check that filters are at default.
 
 ---
 

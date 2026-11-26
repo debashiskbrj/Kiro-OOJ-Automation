@@ -5,6 +5,109 @@ code added/changed. Details belong in the other docs; this is the timeline.
 
 ---
 
+- **2026-11-26** — FULL CHECK + CLEANUP (v1.4.0, operator request "find all the file folder
+  script and if any wrong correct it"): every .py compiles, pyflakes clean, app.js syntax OK,
+  every tools/*.py and .ps1 is used, no secrets, README lists all 21 docs. Docs brought up to
+  date with this week's rules (SCC-only TIDs, station fallback, AH/AI/AJ, Remark Summary,
+  Retry buttons): `pipeline-reference.md`, `report-spec.md`, `user-guide.md`; stale
+  present-tense `scc_client.py` line in `edge-cases.md` marked historical; owner path removed
+  from a `post_comments_runner.py` comment. Found: the template was opened and saved in
+  Excel on 26-Nov 21:24 — formulas identical, only column D (TID) widened and re-styled
+  (operator edit, kept). Removed 21 one-off agent scratch scripts/logs from `.agents/` and
+  the `.pytest_cache/` folder (kept `template-backup/`, `p-formula-row759.txt` and the
+  LinkedIn image script `media.py`) and the outdated v1.3.9 share zip from the Desktop.
+
+- **2026-11-26** — CHANGE (v1.3.9, operator rule): **Working Sheet E (Station Code(SCC))** is
+  now a visible formula that uses the SCC Source when it is a real 4-character letter/digit
+  station code, otherwise the **DSR Data `station_code` (column Q)** for the same TID; if the
+  TID is not in DSR the SCC value stays (a TID not in SCC still shows #N/A). Written by
+  `fill_template.extend_working_sheet` (like I = Zone); the template file is unchanged. The
+  polygon check uses the same rule for its station (`fill_template.effective_station`), and
+  the workbook polygon validator applies it too. Seen in runs: SCC Source sometimes holds a
+  10-digit number or a long ID (1–21 rows per run); DSR had a valid code for all of them in
+  the good runs. Real-Excel check on run 20261126_145546: E correct on 975/975 rows, 1 row
+  corrected (`3310810422` -> `HYBK`), remark and Rule B counts identical to the original run.
+  Tests: `tests/test_station_code_fallback.py`.
+
+- **2026-11-26** — FIX (v1.3.8, operator report "Polygon file not corrected"): v1.3.7 moved
+  every lookup to the SCC TIDs but the **Polygon** lane still built its input from the SIM-T
+  ticket rows, so `TID_Polygon_Check_<stamp>.xlsx` listed SIM-T TIDs. Now the polygon check
+  runs on ONLY the SCC file's TIDs (each once, station = SCC Source; ticket station code only
+  when Source is blank) — that is the TID_Polygon_Check file (also `polygon_scc.csv`). The
+  results are then matched back to the Working Sheet rows by TID; a ticket whose TID is not in
+  the SCC file shows `Error — TID not in SCC file (not checked)` in AG (was "SIW unresolved").
+  Replay on run 20261126_145546: 974 of 975 rows identical, the 1 other is that new label;
+  workbook validator passes. Also: web progress % now counts the SCC TIDs
+  (`lookup_tids.txt`), and log wording says "SIM-T ticket TIDs" / "SIM-T TIDs not in the SCC
+  file" instead of "lookup TIDs" / "missing". Found: the SCC files uploaded at 20:07 and 20:53
+  on 26-Nov (`SearchResults (23)/(24)/(25).csv`, 224 / 17 / 224 rows) contain NO TID of any
+  SIM-T run on this laptop, so every row of those runs is #N/A — wrong SCC search list, not
+  a code fault. Tests: `tests/test_scc_only_tids.py`.
+
+- **2026-11-26** — RULE CHANGE (v1.3.7, operator decision): **every TID lookup uses ONLY the
+  TIDs of the uploaded SCC file** (the operator's cleaned list: incorrect and duplicate TIDs
+  already removed). EagleEye, PNAMA and DSR used the SIM-T TIDs before; GCRS (and so ADS and
+  Polygon) used SCC but fell back to SIM-T when the SCC file was empty — that fallback is
+  removed. SIM-T still supplies the ticket rows (URL, Short ID, dates, comments, Approval in
+  Comments) and the TID list the operator searches in SCC. Working Sheet rows stay one per
+  SIM-T ticket (template formulas key on them); a ticket whose TID is not in the SCC file gets
+  no lookup data and the template remark handles it ("Invalid- Incorrect TID / TID Not
+  Found"). An SCC upload with no Tracking IDs stops the run before any lookup. Each run logs
+  the counts and writes `lookup_tids.txt`. SCC TIDs that are not in that day's SIM-T tickets
+  (should never happen: the SCC file is the cleaned SIM-T list) are only HIGHLIGHTED — a
+  `WARNING: SCC file does not match SIM-T` log line and a 20 s amber page popup — and the run
+  continues (operator decision; seen 2026-11-26 20:07 when an old SCC file with 0 matching
+  TIDs was uploaded). Tests: `tests/test_scc_only_tids.py`.
+
+- **2026-11-26** — FEATURE (v1.3.6, operator request): **"Retry failed / pending" button** in
+  section 5 (Resolve ticket) and section 6 (Post comments); it shows the count and is enabled
+  only when the last run left something undone. Resolve: re-runs ONLY tickets that are Failed
+  or have no result (stopped / not verified); Resolved and Already-resolved are never sent
+  again; it starts a new run folder `<stamp>_retry` (own report), after a confirm dialog and
+  `POST /resolve/retry-failed {"confirmed":true}`. Post comments: the button already existed
+  but only redid Failed rows; it now also covers pending URLs (in the uploaded file but never
+  attempted), never a URL with a Success row (any date), and keeps all earlier report rows.
+  Caveat shown in the confirm dialog: a "Failed - No Confirmation" URL may already have its
+  comment on the ticket. The page state is in server memory, so after a server restart the
+  buttons stay disabled until the next run. Tests: `tests/test_retry_buttons.py`.
+
+- **2026-11-26** — FIX (v1.3.5): Resolve ticket run 20261126_153227 (506 tickets): 468
+  Resolved, 38 Failed. 30 failed with `get-ticket ... non-API HTML ... "403 Forbidden"` (the
+  ticketing gateway blocked reads in short bursts that hit all 4 workers in the same second,
+  e.g. 15:33:00, 15:35:40, 15:37:09; the normal retries 2+5+10 s = 17 s ended before the block
+  lifted). None of the 30 was sent, so no ticket was changed. The other 8 were sent but
+  SIM-T still showed Assigned after ~120 s. Fix: after a gateway 403 the call is retried with
+  `GATEWAY_RETRY_DELAYS = (15, 30, 60, 90)` s (other errors keep 2/5/10). Re-running the list is
+  safe (Resolved tickets are skipped). Tests: `tests/test_resolve_tickets.py`.
+
+- **2026-11-25** — FEATURE (v1.3.4, operator spec): new Working Sheet column **AJ = "Rule B
+  Bucket (Pincode + GCRS Address)"**, plain text, Valid rows only (P exactly "Valid"):
+  Customer Bucket / Amazon Bucket / Manual Review by rules B1+B2, B3, B5, B4, B6, B7 (first
+  match wins) on N (Probability ≥ 0.60), O (Pincode Validation), R (Station Validation) and
+  the CX Address Check from `GCRS Agentspaces ` col D matched on TID (NOT OK = bad, OK = ok;
+  not found / Error / MISMATCH / blank = neither). Logic `tools/rule_b_bucket.py`; written by
+  Excel (`tools/write_rule_b_column.ps1`) after the recalc, header format copied from the
+  cell to its left, no other cell changed. After writing, the column is re-read and the three
+  buckets must add up to the Valid count (logged). Non-fatal. Also a CLI for an existing
+  workbook (writes `<name>_RuleB.xlsx`). Checked on the operator's edited 2026-11-24 workbook:
+  Valid 494 = Customer 345 + Amazon 78 + Manual 71 (reference), 0 other cells changed.
+  Tests: `tests/test_rule_b_bucket.py`.
+
+- **2026-11-24** — FEATURE (v1.3.3, operator request): new **Remark Summary** sheet (right
+  after Working Sheet) with a PivotTable: volume per Remark (column P), largest first, Grand
+  Total. Built by `tools/recalc_excel.ps1 -PivotRows N` in the same Excel session as the
+  recalc; refreshes on file open (after editing P: right-click > Refresh). Non-fatal: a
+  pivot failure logs a WARNING and the workbook is still produced. Verified on run
+  20261125_152211_943727: pivot counts = the run log's remark counts (793/298/187/12/4/2/1,
+  total 1,297). Browser sign-in wait raised to **20 s**. Tests: `tests/test_remark_pivot.py`.
+
+- **2026-11-24** — CHANGE (v1.3.2, operator decision): the browser sign-in check at Start
+  (`tools/browser_signin.py`) now waits **at most 10 s** (was 10 min), checks only the PNAMA
+  dashboard (DSR is the same QuickSight account), closes the window and the page shows a
+  popup: "Browser accepted Midway — next process starting automatically" (green) or
+  "not confirmed" (amber). The run continues either way; PNAMA/DSR keep their own login wait.
+  Tests: `tests/test_browser_signin.py`.
+
 - **2026-11-23** — TEMPLATE FIX (v1.3.1, operator-approved): in the Working Sheet Remark
   formula (P2..P6) every `V<n>="REVERSE"` became `IFNA(V<n>,"")="REVERSE"` (14 places).
   A TID with no EagleEye row used to make `OR(...)` return #N/A, so a Delivered shipment got

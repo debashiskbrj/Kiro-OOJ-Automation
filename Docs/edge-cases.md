@@ -116,7 +116,8 @@ Format: `#ID — [source] symptom → cause → rule`.
   reads it. Constants: `SCC_UI_CHUNK=5000`, `AUTO_DOWNLOAD_THRESHOLD=1000`.
 - **#C8 — failed-not-queried ≠ not-found (added 2026-09-28).** A chunk whose
   Search/Export fails every refresh retry used to be dropped as generic "no-data",
-  indistinguishable from TIDs SCC genuinely has no row for. `scc_client.py` now marks
+  indistinguishable from TIDs SCC genuinely has no row for. *(Historical — the SCC lane
+  was retired 2026-10-12.)* `scc_client.py` then marked
   such TIDs as *failed-not-queried*, writes them to `scc_failed_tids_<stamp>.txt`, and
   logs them separately from real not-found. Re-run (or `--resume-existing`) to fill
   them. Separately, a chunk that returns **zero rows** is re-verified once with a tab

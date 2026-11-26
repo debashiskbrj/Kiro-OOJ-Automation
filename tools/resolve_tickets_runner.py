@@ -50,6 +50,7 @@ RESULT_FAILED = "Failed"
 RESULT_NOT_PROCESSED = "Not processed (stopped)"
 DEFAULT_WORKERS = 4
 RETRY_DELAYS = (2, 5, 10)  # seconds between attempts of one API call
+GATEWAY_RETRY_DELAYS = (15, 30, 60, 90)  # same, after a gateway "403 Forbidden" block
 # SIM-T accepts update-ticket but keeps returning the OLD status for a while (seen live
 # 2026-11-16: 78 tickets read back as "Assigned" right after a successful resolve, all
 # Resolved/Successful when checked later). So the run is two-phase: phase 1 resolves
@@ -118,16 +119,26 @@ def open_mcp():
     return mcp
 
 
+def _is_gateway_block(exc: Exception) -> bool:
+    """The ticketing gateway answered with an HTML "403 Forbidden" page instead of the API."""
+    text = str(exc)
+    return "403 Forbidden" in text or "non-API HTML" in text or "edge/gateway filter" in text
+
+
 def _with_retries(fn):
-    last = None
-    for attempt in range(len(RETRY_DELAYS) + 1):
+    attempt = 0
+    while True:
         try:
             return fn()
         except Exception as exc:  # network / throttling / transient MCP errors
-            last = exc
-            if attempt < len(RETRY_DELAYS):
-                time.sleep(RETRY_DELAYS[attempt])
-    raise last
+            # A gateway 403 is a short-lived block on request rate (it hit all 4 workers in
+            # the same second on 2026-11-26 and outlasted the 17 s of normal retries), so
+            # back off much longer before asking again.
+            delays = GATEWAY_RETRY_DELAYS if _is_gateway_block(exc) else RETRY_DELAYS
+            if attempt >= len(delays):
+                raise
+            time.sleep(delays[attempt])
+            attempt += 1
 
 
 def read_status(mcp, ticket_id: str) -> str:

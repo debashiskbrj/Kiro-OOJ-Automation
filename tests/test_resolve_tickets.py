@@ -19,8 +19,46 @@ import resolve_controller as rsc  # noqa: E402
 @pytest.fixture(autouse=True)
 def _no_retry_wait(monkeypatch):
     monkeypatch.setattr(rtr, "RETRY_DELAYS", (0, 0, 0))
+    monkeypatch.setattr(rtr, "GATEWAY_RETRY_DELAYS", (0, 0, 0, 0))
     monkeypatch.setattr(rtr, "VERIFY_WAIT", 0)
     monkeypatch.setattr(rtr, "VERIFY_RETRY_DELAYS", (0, 0))
+
+
+GATEWAY_403 = ("get-ticket returned {'status': 'error', 'error': 'Received a non-API HTML "
+               "response from the ticketing endpoint: \"403 Forbidden\". The request was likely "
+               "blocked by an edge/gateway filter'}")
+
+
+def test_gateway_403_gets_longer_backoff_then_succeeds(monkeypatch):
+    sleeps, calls = [], []
+    monkeypatch.setattr(rtr.time, "sleep", sleeps.append)
+    monkeypatch.setattr(rtr, "GATEWAY_RETRY_DELAYS", (15, 30, 60, 90))
+
+    def flaky():
+        calls.append(1)
+        if len(calls) < 4:
+            raise RuntimeError(GATEWAY_403)
+        return "Assigned"
+    assert rtr._with_retries(flaky) == "Assigned"
+    assert sleeps == [15, 30, 60]
+
+
+def test_gateway_403_gives_up_after_all_long_retries(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(rtr.time, "sleep", sleeps.append)
+    monkeypatch.setattr(rtr, "GATEWAY_RETRY_DELAYS", (15, 30, 60, 90))
+    with pytest.raises(RuntimeError, match="403 Forbidden"):
+        rtr._with_retries(lambda: (_ for _ in ()).throw(RuntimeError(GATEWAY_403)))
+    assert sleeps == [15, 30, 60, 90]
+
+
+def test_other_errors_keep_the_short_retries(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(rtr.time, "sleep", sleeps.append)
+    monkeypatch.setattr(rtr, "RETRY_DELAYS", (2, 5, 10))
+    with pytest.raises(RuntimeError, match="timeout"):
+        rtr._with_retries(lambda: (_ for _ in ()).throw(RuntimeError("timeout")))
+    assert sleeps == [2, 5, 10]
 
 
 def _results(path):

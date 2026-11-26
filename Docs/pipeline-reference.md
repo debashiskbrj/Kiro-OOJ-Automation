@@ -47,11 +47,23 @@ this project). SCC is now a **manual step with a pause**:
    Ship Option) and, on success, **automatically resumes** the run as Phase B
    (`run_daily.py --resume-dir <run> --scc-csv <upload>`), which loads the CSV via
    `load_scc_csv()` into the exact same shape the old lane used to produce (same
-   columns, same `scc.csv` handoff file, same `summary.json["scc"]` shape), so every
-   downstream lane (EagleEye, PNAMA, DSR, GCRS, Polygon, ADS) is unaffected.
+   columns, same `scc.csv` handoff file, same `summary.json["scc"]` shape).
 
 Provides State, Destination, Source (station), Ship Option. There is no automated
 browsing, no chunking, and no SCC batch API involved in the live path.
+
+**TID rule (operator, 2026-11-26):** the uploaded SCC file is the operator's cleaned TID
+list (incorrect + duplicate TIDs removed), so it has the same or fewer TIDs than SIM-T.
+**Every lookup below — EagleEye, PNAMA, DSR, GCRS, ADS and Polygon — uses ONLY the SCC
+file's TIDs** (`run_daily.scc_lookup_tids`, written to `lookup_tids.txt`); SIM-T TIDs are
+never looked up and there is no fallback. SIM-T still gives the Working Sheet rows (one per
+ticket), URL, Short ID, dates and comments. An SCC file with no Tracking IDs stops the run;
+SCC TIDs that are not in that day's SIM-T are only highlighted (log `WARNING: SCC file does
+not match SIM-T` + an amber page popup) and the run continues.
+
+**Station (Working Sheet E, polygon):** SCC `Source` when it is a 4-character letter/digit
+code; otherwise DSR `station_code` (DSR Data column Q) for the same TID. SCC Source is
+sometimes a 10-digit number or a long ID.
 
 ## 3. EagleEye
 `eagleeye_client.py` — **API** (MCP endpoint `mcp.eagleeye-api.ats.amazon.dev`) using

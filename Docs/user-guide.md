@@ -57,6 +57,10 @@ automation Edge profile once and run again.
    - In the SCC card choose the file and click **Upload SCC CSV**. A valid file (columns
      Tracking ID, State, Destination, Source, Ship Option) resumes the run automatically.
      A rejected file shows the reason; fix it and upload again.
+   - **Every lookup after SCC (EagleEye, PNAMA, DSR, GCRS, ADS, Polygon) uses only the
+     TIDs in your SCC file.** A file with no Tracking IDs stops the run. If the SCC TIDs do
+     not match today's SIM-T tickets, an amber popup warns you ("probably an old or wrong
+     SCC file") and the run continues — check you uploaded today's export.
 
 6. **Stop after the SCC upload (and rerun).** While the steps after SCC are running, the
    SCC card shows a red **Stop run (keep SIM-T data)** button.
@@ -90,6 +94,9 @@ login. Full details: `resolve-tickets.md`.
    listed first in the table.
 5. **Stop** is available at any time; tickets already resolved stay resolved.
 6. Click **Download resolved report** (Excel: Summary, Results, Invalid input).
+7. If tickets failed or were not reached, **Retry failed / pending (N)** re-runs ONLY those
+   tickets (new report). Resolved ones are never sent again. The button works for the last
+   run since the page server started.
 
 **First time on a new machine or after an update: try ONE ticket first** and confirm in
 SIM-T that it shows Resolved / Successful. Pasting the same list again is safe: tickets
@@ -101,7 +108,8 @@ that are already resolved are skipped.
 
 Upload an `.xlsx` with **url**, **tid** and **remark** columns. A dry-run preview runs
 first; nothing is posted until you tick the confirmation and click **Post comments to
-tickets**. **Retry failed** re-posts only the failed tickets.
+tickets**. **Retry failed / pending (N)** re-posts only the URLs that failed or were never
+reached; URLs already posted are never repeated.
 
 ---
 
@@ -114,6 +122,12 @@ tickets**. **Retry failed** re-posts only the failed tickets.
 - **AI — Approval in Comments**: from the ticket comments (`approval-in-comments.md`):
   `Approved` / `Site clear` when a CRM or Site Lead approved,
   `Need check manually (<alias>)` when only someone else approved, blank when nobody did.
+- **AJ — Rule B Bucket (Pincode + GCRS Address)**: for Valid rows only — Customer Bucket /
+  Amazon Bucket / Manual Review (rules in `tools/rule_b_bucket.py`).
+- **E — Station Code(SCC)**: SCC Source, or the DSR station code when SCC's Source is not a
+  real 4-character station code.
+- **Remark Summary** sheet: a pivot of the volume per Remark (right-click > Refresh after
+  you edit column P).
 
 ---
 

@@ -7,10 +7,11 @@ PNAMA much later, sits on a login page nobody is watching, and fails.
 
 What it does (read-only; no data is fetched):
   1. opens the automation Edge profile on the PNAMA dashboard and brings it to the front;
-  2. already signed in -> the dashboard loads, the window closes by itself;
-  3. login page -> waits (up to SIGNIN_TIMEOUT_S) for the operator's PIN + YubiKey,
-     then closes by itself as soon as the dashboard loads;
-  4. repeats the check for the DSR dashboard (same QuickSight account, normally instant).
+  2. waits at most SIGNIN_TIMEOUT_S (20 s, operator decision 2026-11-24: the browser picks
+     up Midway by itself, a long wait only delays the result) for the dashboard to load;
+  3. closes the window and logs "Browser accepted Midway" (the page shows a popup) or,
+     if not confirmed in time, a "not confirmed" line — the run continues either way.
+  DSR is the same QuickSight account (amazonbi), so it is not checked separately.
 
 It never raises: the caller gets a result dict and the run continues either way
 (PNAMA/DSR keep their own login wait, exactly as before).
@@ -26,8 +27,10 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS))
 
-SIGNIN_TIMEOUT_S = 600   # operator is at the laptop (just clicked Start)
-POLL_S = 2
+SIGNIN_TIMEOUT_S = 20    # operator decision 2026-11-24: max 20 s, then close and continue
+POLL_S = 1
+ACCEPTED_MSG = "Browser accepted Midway"          # app.js shows a popup for this line
+NOT_CONFIRMED_MSG = "Browser Midway not confirmed"  # app.js shows a warning popup
 LOGIN_MARKERS = ("midway", "federate", "/sn/auth/")  # same markers as pnama_export
 
 
@@ -56,15 +59,16 @@ def _dashboard_ready(page, tab_name: str = "") -> bool:
 
 def _wait_signed_in(page, url: str, name: str, log, timeout_s: float,
                     tab_name: str = "") -> bool:
+    deadline = time.time() + timeout_s
+    nav_ms = max(1_000, int(timeout_s * 1000))
     try:
-        page.goto(url, timeout=90_000, wait_until="domcontentloaded")
+        page.goto(url, timeout=nav_ms, wait_until="domcontentloaded")
     except Exception as exc:  # AEA/SSO redirects interrupt the first navigation
         log(f"browser sign-in: {name} navigation interrupted ({str(exc)[:70]}); waiting")
     try:
         page.bring_to_front()
     except Exception:
         pass
-    deadline = time.time() + timeout_s
     asked = False
     renavigated = 0
     while time.time() < deadline:
@@ -84,7 +88,8 @@ def _wait_signed_in(page, url: str, name: str, log, timeout_s: float,
         elif page.url == "about:blank" and renavigated < 3:
             renavigated += 1
             try:
-                page.goto(url, timeout=90_000, wait_until="domcontentloaded")
+                left_ms = max(1_000, int((deadline - time.time()) * 1000))
+                page.goto(url, timeout=left_ms, wait_until="domcontentloaded")
             except Exception:
                 pass
         time.sleep(POLL_S)
@@ -98,7 +103,6 @@ def ensure_signed_in(log=print, timeout_s: float = SIGNIN_TIMEOUT_S) -> dict:
     try:
         from playwright.sync_api import sync_playwright
 
-        import dsr_export
         import pnama_export
     except Exception as exc:
         result["error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
@@ -118,13 +122,10 @@ def ensure_signed_in(log=print, timeout_s: float = SIGNIN_TIMEOUT_S) -> dict:
             )
             try:
                 page = ctx.pages[0] if ctx.pages else ctx.new_page()
-                start = time.time()
                 result["pnama"] = _wait_signed_in(page, pnama_export.DASHBOARD_URL, "PNAMA",
                                                   log, timeout_s, pnama_export.TARGET_TAB)
-                if result["pnama"]:
-                    left = max(60.0, timeout_s - (time.time() - start))
-                    result["dsr"] = _wait_signed_in(page, dsr_export.DASHBOARD_URL, "DSR",
-                                                    log, left, dsr_export.TARGET_TAB)
+                # DSR is on the same QuickSight account: one sign-in covers both.
+                result["dsr"] = result["pnama"]
             finally:
                 try:
                     ctx.close()
@@ -134,8 +135,10 @@ def ensure_signed_in(log=print, timeout_s: float = SIGNIN_TIMEOUT_S) -> dict:
         result["error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
         log(f"browser sign-in check failed: {result['error']}")
     result["ok"] = bool(result["pnama"] and result["dsr"])
-    log("browser sign-in: done, window closed — continuing" if result["ok"] else
-        "browser sign-in: NOT confirmed — continuing; PNAMA/DSR will ask again in the Edge window")
+    log(f"browser sign-in: {ACCEPTED_MSG} — window closed, next process starting automatically"
+        if result["ok"] else
+        f"browser sign-in: {NOT_CONFIRMED_MSG} within {int(timeout_s)} s — window closed, "
+        "continuing; PNAMA/DSR will ask again in the Edge window if needed")
     return result
 
 
