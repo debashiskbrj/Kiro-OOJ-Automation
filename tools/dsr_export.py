@@ -23,6 +23,7 @@ from playwright.sync_api import sync_playwright
 
 import pnama_export as driver
 
+# Direct sheet link (operator, 2026-11-27).
 DASHBOARD_URL = ("https://us-east-1.quicksight.aws.amazon.com/sn/account/amazonbi/dashboards/"
                  "9a951c72-3cae-4c18-bfd1-69231a4f10d1/sheets/"
                  "9a951c72-3cae-4c18-bfd1-69231a4f10d1_9fe3f0ac-9f42-4ef3-b81e-6352c9158f76")

@@ -251,7 +251,10 @@ nice-to-have, not required.
 #### PNAMA missort (WORKING — Playwright export, verified 2026-09-17)
 
 Dashboard `IN_SWA_PNAMA_Dashboard` (`1650383a-7bfd-409c-9406-d364810f8019`), sheet tab
-`SWA repeat_Prox_Pnama_match Raw data`. Script `tools\pnama_export.py`:
+`SWA repeat_Prox_Pnama_match Raw data`. Since 2026-11-27 the script opens the direct sheet
+link `…/dashboards/1650383a-7bfd-409c-9406-d364810f8019/sheets/1650383a-7bfd-409c-9406-d364810f8019_e70590da-c0eb-4ee1-8b83-dc7f288292a9`
+(`DASHBOARD_URL` in `tools\pnama_export.py`; `browser_signin.py` and the DSR lane reuse
+it). Script `tools\pnama_export.py`:
 
 ```
 1. edge_profile -> dashboard URL (AEA aborts first nav; re-navigate; QuickSight/Midway
@@ -288,7 +291,9 @@ into a run; validation (#Q3) is the second guard.
 
 #### DSR Waterfall — IMPLEMENTED FOR ZONE; LIVE RECHECK PENDING
 
-Dashboard `9a951c72-3cae-4c18-bfd1-69231a4f10d1`. `tools\dsr_export.py` implements
+Dashboard `9a951c72-3cae-4c18-bfd1-69231a4f10d1`, opened by its direct sheet link
+`…/dashboards/9a951c72-3cae-4c18-bfd1-69231a4f10d1/sheets/9a951c72-3cae-4c18-bfd1-69231a4f10d1_9fe3f0ac-9f42-4ef3-b81e-6352c9158f76`
+(`DASHBOARD_URL` in `tools\dsr_export.py`, operator-confirmed 2026-11-27). `tools\dsr_export.py` implements
 the persistent-Edge control/export flow and validates requested/extra/missing TIDs,
 blank Zone values, duplicate rows, and conflicting Zone mappings. A current live UI
 recheck is still required because dashboard selectors can change.

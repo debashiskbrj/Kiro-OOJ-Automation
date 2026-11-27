@@ -5,6 +5,18 @@ code added/changed. Details belong in the other docs; this is the timeline.
 
 ---
 
+- **2026-11-27** — CHANGE (v1.4.1, operator request): PNAMA and DSR now open their **direct
+  sheet links** — PNAMA `…/dashboards/1650383a-7bfd-409c-9406-d364810f8019/sheets/1650383a-7bfd-409c-9406-d364810f8019_e70590da-c0eb-4ee1-8b83-dc7f288292a9`
+  (`pnama_export.DASHBOARD_URL`, was the dashboard link without a sheet), DSR
+  `…/dashboards/9a951c72-3cae-4c18-bfd1-69231a4f10d1/sheets/9a951c72-3cae-4c18-bfd1-69231a4f10d1_9fe3f0ac-9f42-4ef3-b81e-6352c9158f76`
+  (`dsr_export.DASHBOARD_URL`, already identical; comment added). `browser_signin.py`
+  uses the PNAMA constant, so the start-up check opens the new link too. Live check in the
+  automation Edge window (read-only): PNAMA loaded in 21 s with the tab "SWA repeat_Prox_Pnama_match
+  Raw data" found and clicked by the lane's own code; DSR loaded in 14 s with "DSR Raw data".
+  Only these two constants carry a dashboard link anywhere in the project (checked by
+  `tests/test_dashboard_urls.py`); `Docs/architecture.md` updated. Still true: QuickSight may
+  keep each user's last filter state — reset both dashboards by hand if a run looks short.
+
 - **2026-11-26** — FULL CHECK + CLEANUP (v1.4.0, operator request "find all the file folder
   script and if any wrong correct it"): every .py compiles, pyflakes clean, app.js syntax OK,
   every tools/*.py and .ps1 is used, no secrets, README lists all 21 docs. Docs brought up to

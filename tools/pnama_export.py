@@ -29,8 +29,10 @@ import browser_blob_capture
 from ooj_paths import EDGE_PROFILE
 
 PROFILE_DIR = str(EDGE_PROFILE)
+# Direct sheet link (operator, 2026-11-27). Used by this lane AND by browser_signin.py.
 DASHBOARD_URL = ("https://us-east-1.quicksight.aws.amazon.com/sn/account/amazonbi/dashboards/"
-                 "1650383a-7bfd-409c-9406-d364810f8019")
+                 "1650383a-7bfd-409c-9406-d364810f8019/sheets/"
+                 "1650383a-7bfd-409c-9406-d364810f8019_e70590da-c0eb-4ee1-8b83-dc7f288292a9")
 TARGET_TAB = "SWA repeat_Prox_Pnama_match Raw data"
 CONTROL_LABEL = "tracking_id"
 OUT = Path(__file__).parent / "captures" / "pnama"
