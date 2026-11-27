@@ -5,6 +5,39 @@ code added/changed. Details belong in the other docs; this is the timeline.
 
 ---
 
+- **2026-11-27** — FEATURE (v1.5.0, operator decision): two new Working Sheet columns for
+  every **Valid** row — **AK "CX / Amazon Bucket"** (`CX Bucket` / `Amazon Bucket`) and **AL
+  "Bucket Reason"** (short reason). Amazon only when ALL are proven: Pincode Validation (O)
+  TRUE; Station Validation (R) FALSE or GCRS Polygon (AG) "Outside"; India Post Database (AH)
+  "OK"; GCRS address (GCRS_Data col K, lines 1-3) Full (≥ 4 words without phone numbers + a
+  house/flat/door/plot number or gali/road/street/sector/block word). Everything else is CX
+  with the first failing check as reason (10 reasons). Logic `tools/cx_amazon_bucket.py`
+  (+ CLI for old workbooks), written by Excel after the recalc like Rule B (which stays in AJ).
+  Tested on 7 real runs (2,661 Valid rows): Amazon 140 (5.3%), CX 2,521 (94.7%); on run
+  20261126_145546 the automation step gives exactly CX 415 / Amazon 25 and changes no other
+  cell. **Renames (visible text only, internal keys and formulas unchanged):** AG "GCRS Agent
+  Space" → **"GCRS Polygon"** (template AG1 shared string edited — only AG1 used it; backup in
+  `.agents/template-backup/`), AH "CX Address Check" → **"India Post Database"**, same names in
+  the `GCRS Agentspaces` sheet header, the TID_Polygon_Check file and the Validation Data file.
+  The sheet name `GCRS Agentspaces ` is NOT renamed (AG2 formula points to it). Tests:
+  `tests/test_cx_amazon_bucket.py`.
+
+- **2026-11-27** — FIX (v1.4.2, operator report "PNAMA/DSR stuck in between"): two runs today
+  (12:30, 13:20) had a bad DSR step. Causes found in the logs: (1) 12:41 — DSR returned only 8
+  of 884 TIDs (and 13:37 attempt 1 had no table data, "Export to CSV" not clickable) while
+  QuickSight was slow; the lane accepted the partial result silently, which blanked Zone for
+  most rows; (2) 13:45 — a network blip (`ERR_NAME_NOT_RESOLVED`) left the browser on an error
+  page and `open_dashboard` only re-navigated from a blank page, so it waited the full 5
+  minutes and failed. PNAMA itself finished normally (3.5 min, 17 of 1,105 = normal match
+  rate). Re-test the same day: the DSR lane returned 50/50 TIDs, then the full 1,105-TID list
+  → 1,094 rows (99%) in 3.7 min, so the dashboard and both links are fine. Fixes:
+  `pnama_export.open_dashboard` navigates again from a `chrome-error://` page;
+  `dsr_export.fetch` now makes up to 3 attempts and treats an export with fewer than 50% of the
+  requested TIDs (`MIN_COVERAGE`, only for ≥ 20 TIDs) as incomplete: it refreshes and retries
+  ONCE, then accepts with a `DSR WARNING: only X of Y TIDs have DSR data` log line. The first
+  DSR load can legitimately take ~2 min of "busy" — that is normal, not stuck. Tests:
+  `tests/test_dashboard_resilience.py`.
+
 - **2026-11-27** — CHANGE (v1.4.1, operator request): PNAMA and DSR now open their **direct
   sheet links** — PNAMA `…/dashboards/1650383a-7bfd-409c-9406-d364810f8019/sheets/1650383a-7bfd-409c-9406-d364810f8019_e70590da-c0eb-4ee1-8b83-dc7f288292a9`
   (`pnama_export.DASHBOARD_URL`, was the dashboard link without a sheet), DSR

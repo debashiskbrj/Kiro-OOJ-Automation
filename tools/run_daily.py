@@ -52,8 +52,8 @@ FINAL_COLUMNS = [
     "Destination", "CX Pincode", "ADS Predicted Pincode", "Probability", "Pincode Validation", "Remark",
     "Predicted Pincode served by station", "Station Validation", "In - Swa", "Short ID", "URL",
     "RTO Status", "Past delivered record", "Delivered Old shipment", "Old shipment delivered by Station",
-    "SCC & misort Station validation", "Station Transfer Validation", "GCRS Agent Space",
-]
+    "SCC & misort Station validation", "Station Transfer Validation", "GCRS Polygon",
+]  # "GCRS Polygon" = Working Sheet AG (renamed from "GCRS Agent Space" 2026-11-27)
 
 
 def wipe_old_runs(current_dir: Path, log=print, keep_days: int = RUN_KEEP_DAYS) -> dict:
@@ -786,6 +786,14 @@ def fill_and_recalc(
     except Exception as exc:
         run.log(f"WARNING: Rule B Bucket column not added ({type(exc).__name__}: {str(exc)[:200]}); "
                 "workbook is otherwise complete")
+    # CX / Amazon Bucket + Bucket Reason columns (operator decision 2026-11-27): two buckets
+    # for every Valid row, with a short reason; next empty columns (AK, AL). Never fatal.
+    try:
+        import cx_amazon_bucket
+        run.summary["cx_amazon_bucket"] = cx_amazon_bucket.apply(out, log=run.log)
+    except Exception as exc:
+        run.log(f"WARNING: CX / Amazon Bucket columns not added ({type(exc).__name__}: {str(exc)[:200]}); "
+                "workbook is otherwise complete")
     return out
 
 
@@ -846,7 +854,7 @@ def read_back(
         )
     if polygon_rows:
         expected_polygon = [str(row.get("GCRS Status") or "") for row in polygon_rows]
-        actual_polygon = [str(row.get("GCRS Agent Space") or "") for row in final_rows]
+        actual_polygon = [str(row.get(ft.HEADER_POLYGON) or "") for row in final_rows]
         if actual_polygon != expected_polygon:
             first_mismatch = next(
                 (

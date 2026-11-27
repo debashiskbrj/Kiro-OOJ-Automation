@@ -189,6 +189,10 @@ transport (one workbook, saved automatically).
    "Browser accepted Midway" (v1.3.2, 2026-11-24). Time saved per run: **[TO FILL]**.
 9. Remark Summary pivot sheet: volume per remark is visible on opening the workbook, no
    manual pivot needed (v1.3.3). Time saved per run: **[TO FILL]**.
+11. CX / Amazon Bucket (AK) + Bucket Reason (AL), v1.5.0: two buckets for every Valid row,
+   Amazon only with full proof (pincode, station/polygon, India Post, full address). Tested
+   on 7 runs / 2,661 Valid rows: Amazon 5.3%, CX 94.7% (Rule B on the same 4 comparable runs:
+   Amazon 23.0%). Accuracy vs manual judgement: **[TO FILL]** (planned 100-row check).
 10. Rule B Bucket column (AJ): every Valid ticket classified as Customer / Amazon / Manual
    Review from pincode, probability, station and GCRS address signals (v1.3.4). First
    check (2026-11-24 data): 494 Valid = 345 Customer (70%), 78 Amazon (16%), 71 Manual (14%).

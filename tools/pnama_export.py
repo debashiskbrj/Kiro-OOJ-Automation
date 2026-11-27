@@ -77,7 +77,12 @@ def open_dashboard(page):
     for i in range(150):
         time.sleep(2)
         url = page.url
-        if url == "about:blank" and i % 3 == 2:
+        # A blank page (aborted first navigation) or a browser error page (network blip such
+        # as ERR_NAME_NOT_RESOLVED, url "chrome-error://...") never fixes itself: navigate
+        # again every ~6 s instead of waiting out the whole 5 minutes (seen 2026-11-27).
+        if (url == "about:blank" or url.startswith("chrome-error:")) and i % 3 == 2:
+            if url.startswith("chrome-error:"):
+                log("browser shows a network error page; navigating again")
             nav()
             continue
         if "midway" in url.lower() or "federate" in url.lower() or "/sn/auth/" in url:

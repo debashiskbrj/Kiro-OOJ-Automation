@@ -124,6 +124,12 @@ reached; URLs already posted are never repeated.
   `Need check manually (<alias>)` when only someone else approved, blank when nobody did.
 - **AJ — Rule B Bucket (Pincode + GCRS Address)**: for Valid rows only — Customer Bucket /
   Amazon Bucket / Manual Review (rules in `tools/rule_b_bucket.py`).
+- **AK — CX / Amazon Bucket** and **AL — Bucket Reason**: for Valid rows only — `CX Bucket`
+  or `Amazon Bucket` with a short reason. Amazon only when the pincode is correct, the
+  station or polygon shows the wrong station, India Post says OK and the GCRS address is a
+  full address (rules in `tools/cx_amazon_bucket.py`).
+- **AG** is now called **GCRS Polygon** and **AH** is called **India Post Database** (same
+  values as before).
 - **E — Station Code(SCC)**: SCC Source, or the DSR station code when SCC's Source is not a
   real 4-character station code.
 - **Remark Summary** sheet: a pivot of the volume per Remark (right-click > Refresh after

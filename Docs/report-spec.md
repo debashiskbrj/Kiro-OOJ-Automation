@@ -31,13 +31,15 @@ current understanding; the user will confirm/adjust "from where what to pull".
 | 22 | Old shipment delivered by Station | PNAMA | `reference_station` (col CJ) | WORKING |
 | 23 | SCC & misort Station validation | computed | `Old shipment delivered by Station == Station Code(SCC)` | — |
 | 24 | Station Transfer Validation | computed | Station & Sub Station parent/child rule (template col AF) | AVAILABLE |
-| 25 | GCRS Agent Space | local SIW polygon checker | status from `tools\tid_polygon_checker.py` for the SCC TIDs, matched to each row by TID (a TID not in SCC: `Error — TID not in SCC file (not checked)`); exact Inside text is `Invalid - It is Inside Jurisdiction as per GCRS Tool` | WORKING |
+| 25 | GCRS Polygon (was "GCRS Agent Space", renamed 2026-11-27) | local SIW polygon checker | status from `tools\tid_polygon_checker.py` for the SCC TIDs, matched to each row by TID (a TID not in SCC: `Error — TID not in SCC file (not checked)`); exact Inside text is `Invalid - It is Inside Jurisdiction as per GCRS Tool` | WORKING |
 
 Added after the template's 33 columns (plain values written by the automation, no formula):
-AH **CX Address Check** (customer address zone vs station zone, from the polygon checker),
-AI **Approval in Comments** (SIM-T comments + Phonetool title, `Docs/approval-in-comments.md`),
-AJ **Rule B Bucket (Pincode + GCRS Address)** (`tools/rule_b_bucket.py`). The workbook also
-gets a **Remark Summary** sheet (pivot: volume per Remark).
+AH **India Post Database** (was "CX Address Check"; address vs PIN verdict from the polygon
+checker), AI **Approval in Comments** (SIM-T comments + Phonetool title,
+`Docs/approval-in-comments.md`), AJ **Rule B Bucket (Pincode + GCRS Address)**
+(`tools/rule_b_bucket.py`), AK **CX / Amazon Bucket** and AL **Bucket Reason**
+(`tools/cx_amazon_bucket.py`, Valid rows only). The workbook also gets a **Remark Summary**
+sheet (pivot: volume per Remark).
 
 (25 rows because the user's list has 25 headers; "Destination" and "CX Pincode" had
 trailing spaces in the template.)

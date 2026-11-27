@@ -29,7 +29,9 @@ import gcrs_mcscli
 import polygon_check
 from siw_client import FailoverSiwSession, TransportError
 
-RESULT_HEADERS = ["Tracking ID", "Station", "GCRS Status", "CX Address Check"]
+RESULT_HEADERS = ["Tracking ID", "Station", "GCRS Status", "CX Address Check"]  # internal row keys
+# Header text shown in the TID_Polygon_Check workbook (operator rename 2026-11-27).
+DISPLAY_HEADERS = ["Tracking ID", "Station", "GCRS Polygon", "India Post Database"]
 ERROR_PREFIX = "Error — "
 CAPTURE_DIR = Path(__file__).parent / "captures" / "polygon_local"
 CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
@@ -239,7 +241,7 @@ def write_results_xlsx(
     workbook = openpyxl.Workbook()
     results_sheet = workbook.active
     results_sheet.title = "Results"
-    results_sheet.append(RESULT_HEADERS)
+    results_sheet.append(DISPLAY_HEADERS)
     header_fill = PatternFill("solid", fgColor="1F4E78")
     for cell in results_sheet[1]:
         cell.font = Font(color="FFFFFF", bold=True)
@@ -299,7 +301,7 @@ def verify_results_xlsx(path: Path, expected: BoundaryRun) -> dict[str, object]:
             raise RuntimeError("VERIFY FAIL: Results or Summary sheet missing")
         results_sheet = workbook["Results"]
         headers = [cell.value for cell in next(results_sheet.iter_rows(min_row=1, max_row=1))]
-        if headers != RESULT_HEADERS:
+        if headers != DISPLAY_HEADERS:
             raise RuntimeError(f"VERIFY FAIL: headers differ: {headers}")
         actual_rows = [
             tuple("" if value is None else str(value) for value in row)

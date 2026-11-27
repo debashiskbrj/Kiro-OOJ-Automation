@@ -12,6 +12,7 @@ Usage:
 """
 import argparse
 import csv
+import io
 import json
 import re
 import time
@@ -48,6 +49,26 @@ def configure(log_fn):
 
 def normalize(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+
+
+# DSR normally returns data for 95-100% of the requested TIDs. On 2026-11-27 it once returned
+# 8 of 884 while QuickSight was slow/partly refreshing; that must not pass silently.
+MIN_COVERAGE = 0.5
+MIN_REQUEST_FOR_CHECK = 20
+
+
+def exported_tid_count(text: str) -> int:
+    """Unique TIDs in an exported CSV text (0 when there is no tracking-ID column)."""
+    reader = csv.DictReader(io.StringIO((text or "").lstrip("\ufeff")))
+    col = next((c for c in (reader.fieldnames or []) if normalize(c) in {"trackingid", "tid"}), None)
+    if not col:
+        return 0
+    return len({str(row.get(col, "")).strip().split(".")[0] for row in reader if str(row.get(col, "")).strip()})
+
+
+def is_incomplete(requested: int, exported_unique: int) -> bool:
+    """True when a sizeable request got back fewer than MIN_COVERAGE of its TIDs."""
+    return requested >= MIN_REQUEST_FOR_CHECK and exported_unique < MIN_COVERAGE * requested
 
 
 def validate(path, requested: list[str], rows=None, columns=None) -> dict:
@@ -109,12 +130,25 @@ def fetch(tids: list[str], log_fn=print) -> tuple[list[dict], dict]:
                 dl = driver.wait_for_download(_before, timeout_s=420) if cap is None else None
                 return cap, dl
 
-            # If the first attempt fails to pull data, refresh the page once and retry.
-            attempts = 2
+            # If an attempt fails to pull data (page error, network blip) or returns only a
+            # small part of the TIDs, refresh the page and retry. 3 attempts in total; a
+            # partial result is retried at most once (a genuinely sparse day must not loop).
+            attempts = 3
             captured = downloaded = None
+            partial_retry_used = False
             for attempt in range(1, attempts + 1):
                 try:
                     captured, downloaded = _drive_once(before)
+                    text = captured["text"] if captured is not None else \
+                        Path(downloaded).read_text(encoding="utf-8-sig", errors="replace")
+                    got = exported_tid_count(text)
+                    if is_incomplete(len(tids), got):
+                        if not partial_retry_used and attempt < attempts:
+                            partial_retry_used = True
+                            raise RuntimeError(f"DSR returned data for only {got} of {len(tids)} TIDs "
+                                               "(incomplete) - refreshing and trying once more")
+                        log_fn(f"DSR WARNING: only {got} of {len(tids)} TIDs have DSR data after "
+                               "retrying; check the DSR dashboard, then rerun if this looks wrong")
                     break
                 except Exception as exc:
                     log_fn(f"DSR attempt {attempt}/{attempts} failed: {type(exc).__name__}: {str(exc)[:200]}")

@@ -89,8 +89,13 @@ Last reviewed: 2026-11-16.
 
 ## Template / output
 - Never delete Working Sheet columns. Deleting columns shifts the grid and breaks formulas.
-- Full template = 33 Working Sheet columns (A..AG). Automation adds AH = CX Address Check, AI = Approval
-  in Comments, AJ = Rule B Bucket (Pincode + GCRS Address); next free column is AK.
+- Full template = 33 Working Sheet columns (A..AG; AG header renamed "GCRS Polygon"
+  2026-11-27). Automation adds AH = India Post Database (was CX Address Check), AI = Approval
+  in Comments, AJ = Rule B Bucket (Pincode + GCRS Address), AK = CX / Amazon Bucket,
+  AL = Bucket Reason; next free column is AM.
+- CX / Amazon Bucket (2026-11-27, `tools/cx_amazon_bucket.py`): Valid rows only, two buckets.
+  Amazon only if O TRUE + (R FALSE or AG Outside) + India Post OK + full GCRS address; else CX
+  with a short reason in AL. Keep Rule B (AJ) as is.
 - Rule B Bucket (2026-11-25, `tools/rule_b_bucket.py`): Valid rows only, plain text
   Customer Bucket / Amazon Bucket / Manual Review, rules in order B1+B2, B3, B5, B4, B6, B7.
   Buckets must add up to the Valid count in P. Reference: Valid 494 = 345 + 78 + 71.

@@ -653,8 +653,9 @@ class TemplateIntegrationTests(unittest.TestCase):
                     _norm_formula(_translate(tpl_p2.text, 3)), _norm_formula(p3_text)
                 )
 
-                # The new CX Address Check column header is stamped at AH1.
-                self.assertEqual("CX Address Check", sheet["AH1"].value)
+                # The India Post Database column header (was CX Address Check) is at AH1.
+                self.assertEqual("India Post Database", sheet["AH1"].value)
+                self.assertEqual("GCRS Polygon", sheet["AG1"].value)
             finally:
                 workbook.close()
 
@@ -765,8 +766,8 @@ class TemplateIntegrationTests(unittest.TestCase):
                 self.assertEqual("Approval in Comments", sheet["AI1"].value)
                 self.assertEqual("Approved", sheet["AI2"].value)
                 self.assertEqual("Site clear", sheet["AI3"].value)
-                # Adjacent columns unchanged.
-                self.assertEqual("CX Address Check", sheet["AH1"].value)
+                # Adjacent columns unchanged (AH header renamed 2026-11-27).
+                self.assertEqual("India Post Database", sheet["AH1"].value)
                 self.assertEqual(polygon_check.INSIDE_TEXT, sheet["AG2"].value)
                 self.assertEqual(polygon_check.OUTSIDE_TEXT, sheet["AG3"].value)
                 # Tech_Data column L carries the approval value; L1 header not renamed.

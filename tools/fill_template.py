@@ -45,6 +45,12 @@ TECH_COLS = ["Sl", "case_id", "createdAt", "lastUpdatedAt", "station_code", "zon
 # Working Sheet columns whose formulas must NOT be extended (dropped from scope).
 SKIP_WORK_COLS = {"F", "G", "H", "W", "X", "Y", "Z", "AA"}
 
+# Visible column names (operator rename 2026-11-27). Internal row keys stay "GCRS Status"
+# and "CX Address Check", so the working method is unchanged.
+HEADER_POLYGON = "GCRS Polygon"            # Working Sheet AG (template text "GCRS Agent Space")
+HEADER_INDIA_POST = "India Post Database"  # Working Sheet AH (was "CX Address Check")
+AGENT_HEADERS = ["Tracking ID", "Station", HEADER_POLYGON, HEADER_INDIA_POST]
+
 # A real station code is exactly 4 letters/digits (e.g. NZMF, BRU1). SCC's Source sometimes
 # holds a 10-digit number or a long ID instead (operator rule 2026-11-26): then the station
 # comes from the DSR export's station_code for that TID.
@@ -278,15 +284,15 @@ def write_dsr_data(ws, rows: list[dict]) -> int:
 def write_polygon_rows(ws, rows: list[dict]) -> int:
     """Write local polygon audit rows to the template's legacy-named source sheet.
 
-    Columns: Tracking ID | Station | GCRS Status | CX Address Check. The 4th column is
-    additive (new 2026-10); the Working Sheet's existing col-33 VLOOKUP uses A:C only and
-    is unaffected.
+    Columns: Tracking ID | Station | GCRS Polygon | India Post Database (headers renamed
+    2026-11-27; were GCRS Status / CX Address Check). The 4th column is additive (new
+    2026-10); the Working Sheet's existing col-33 VLOOKUP uses A:C only and is unaffected.
     """
     clear_rows(ws, 2)
     # Fix (audit 1.14): write the header INTO row 1. ws.append() after reading A1 put the
     # header on row 2 and the data from row 3, leaving row 1 blank.
     if ws["A1"].value in (None, ""):
-        for column, header in enumerate(["Tracking ID", "Station", "GCRS Status", "CX Address Check"], start=1):
+        for column, header in enumerate(AGENT_HEADERS, start=1):
             set_literal_cell(ws.cell(row=1, column=column), header)
     for row in rows:
         tid = row.get("Tracking ID") or row.get("tracking_id") or row.get("TID")
@@ -514,13 +520,16 @@ def fill(template: Path, out_path: Path, tech_rows, scc_rows, eagle_rows, missor
         dsr_station_col=dsr_station_column(wb[SHEET_DSR]),
     )
     working_sheet = wb[SHEET_WORK]
+    # Visible header names (operator rename 2026-11-27), always stamped so every workbook
+    # shows them even when the polygon lane was skipped: AG (template "GCRS Agent Space")
+    # -> "GCRS Polygon", AH (former "CX Address Check") -> "India Post Database". Only the
+    # header text changes; values and formulas are the same.
+    set_literal_cell(working_sheet.cell(row=1, column=33), HEADER_POLYGON)
+    set_literal_cell(working_sheet.cell(row=1, column=34), HEADER_INDIA_POST)
     if polygon_rows:
-        # Column 33 (AG) = GCRS Agent Space (polygon status), written as a literal.
-        # Column 34 (AH) = CX Address Check (new additive column, 2026-10). AH is empty in
-        # the template (33-column layout), so writing it here shifts/clobbers nothing. We
-        # also stamp the AH header in row 1 since the template has no header there.
-        if working_sheet.cell(row=1, column=34).value in (None, ""):
-            set_literal_cell(working_sheet.cell(row=1, column=34), "CX Address Check")
+        # Column 33 (AG) = GCRS Polygon (polygon status), written as a literal.
+        # Column 34 (AH) = India Post Database (address vs PIN verdict, additive column
+        # 2026-10). AH is empty in the template, so writing it shifts/clobbers nothing.
         for row_number, polygon_row in enumerate(polygon_rows, start=2):
             set_literal_cell(working_sheet.cell(row=row_number, column=33), polygon_row.get("GCRS Status") or "")
             set_literal_cell(working_sheet.cell(row=row_number, column=34), polygon_row.get("CX Address Check") or "")
