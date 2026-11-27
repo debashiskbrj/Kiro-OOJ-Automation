@@ -193,6 +193,13 @@ transport (one workbook, saved automatically).
    Amazon only with full proof (pincode, station/polygon, India Post, full address). Tested
    on 7 runs / 2,661 Valid rows: Amazon 5.3%, CX 94.7% (Rule B on the same 4 comparable runs:
    Amazon 23.0%). Accuracy vs manual judgement: **[TO FILL]** (planned 100-row check).
+   v1.5.1 (Analyze → Improve): operator hand check of 224 OOJ Cases TIDs found two root
+   causes — a full correct address with the right station was sent to CX, and the address
+   check was split by GCRS mid-word line cuts and counted sector/road numbers as house
+   numbers. Fixed; on those 224 TIDs Amazon 39 → 46, CX 185 → 178.
+   v1.5.2 (Improve): India Post "partially matches" no longer blocks Amazon when the Full
+   address names a locality India Post lists for that PIN (operator case 374689481819);
+   on the same 224 TIDs Amazon 46 → 47, only that TID moved.
 10. Rule B Bucket column (AJ): every Valid ticket classified as Customer / Amazon / Manual
    Review from pincode, probability, station and GCRS address signals (v1.3.4). First
    check (2026-11-24 data): 494 Valid = 345 Customer (70%), 78 Amazon (16%), 71 Manual (14%).

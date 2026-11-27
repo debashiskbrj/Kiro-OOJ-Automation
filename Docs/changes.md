@@ -5,6 +5,25 @@ code added/changed. Details belong in the other docs; this is the timeline.
 
 ---
 
+- **2026-11-27** — FIX (v1.5.2, operator case 374689481819): India Post "NOT OK — partially
+  matches" no longer blocks Amazon when the address is Full AND names a locality India Post
+  lists for that PIN (e.g. "Block Pinjore" for "PIN 134102, Panchkula, Pinjore"); the city /
+  district name alone does not count. `cx_amazon_bucket.india_post_area_named`. On the 224
+  OOJ Cases TIDs: Amazon 46 → 47 (only that TID moved). Only the end-of-run bucket step
+  (AK/AL) changed — SIM-T, SCC, lanes, formulas and all other columns are untouched.
+
+- **2026-11-27** — FIX (v1.5.1, operator hand check of 224 "OOJ Cases" TIDs): (1) Pincode
+  correct + station correct (R TRUE) + India Post OK + Full address is now **Amazon**
+  ("Station claims OOJ but pincode, station and address are correct") — before it was CX "no
+  wrong-station proof" even with a full address. CX "no proof" now only when R is unknown
+  (#N/A) and the polygon is not Outside. (2) Address check rebuilt: GCRS address lines C:E are
+  re-joined (GCRS cuts words: "Vem"+"ana Road", "Str"+"eet"); sector / phase / road no / gali
+  no / ward / PG numbers no longer count as house numbers; landmark-only text is Short;
+  building / society / institution names, villa / c/o / floor units and rural village +
+  post/tehsil/district + landmark addresses count as Full. On the 224 TIDs: Amazon 39 → 46,
+  CX 185 → 178 (11 CX→Amazon, 4 Amazon→CX); address grade changed for 48 TIDs. Tests: 31 real
+  addresses in `tests/test_cx_amazon_bucket.py`.
+
 - **2026-11-27** — FEATURE (v1.5.0, operator decision): two new Working Sheet columns for
   every **Valid** row — **AK "CX / Amazon Bucket"** (`CX Bucket` / `Amazon Bucket`) and **AL
   "Bucket Reason"** (short reason). Amazon only when ALL are proven: Pincode Validation (O)

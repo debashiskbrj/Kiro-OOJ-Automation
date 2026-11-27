@@ -16,6 +16,10 @@ import tid_polygon_checker as tpc  # noqa: E402
 
 FULL = "House no 104 near post office burua"
 OK = "OK — address correctly served by PIN (PIN 175131, Manali)"
+PINJORE_IP = ("NOT OK — partially matches, PIN serves area approximately "
+              "(PIN 134102, Panchkula, Pinjore)")
+PINJORE = ("Verma Colony , Village Khokhra, Post Office Nanakpur, Tehsil Kalka, Block Pinjore, "
+           "District Panchkula, State Haryana")
 
 
 @pytest.mark.parametrize("remark", ["Invalid - Already RTOed", "#N/A", None, "valid"])
@@ -27,8 +31,20 @@ def test_non_valid_rows_are_blank(remark):
     ((None, None, None, "Outside", OK, FULL), cab.CX, cab.R_NO_ADS),
     ((0.8, False, False, "Outside", OK, FULL), cab.CX, cab.R_PIN_STRONG),
     ((0.2, False, False, "Outside", OK, FULL), cab.CX, cab.R_PIN_WEAK),
-    ((0.9, True, True, "Error — x", OK, FULL), cab.CX, cab.R_NO_PROOF),
-    ((0.9, True, True, ft.POLYGON_INSIDE_TEXT, OK, FULL), cab.CX, cab.R_NO_PROOF),
+    # pincode + station correct, full address, India Post OK -> Amazon (v1.5.1)
+    ((0.9, True, True, "Error — x", OK, FULL), cab.AMAZON, cab.R_AMZ_INSIDE),
+    ((0.9, True, True, ft.POLYGON_INSIDE_TEXT, OK, FULL), cab.AMAZON, cab.R_AMZ_INSIDE),
+    ((0.9, True, True, ft.POLYGON_INSIDE_TEXT, "NOT OK — partially matches", FULL),
+     cab.CX, cab.R_IP_PARTIAL),
+    ((0.9, True, True, ft.POLYGON_INSIDE_TEXT, OK, "Berli Kalan,REWARI"), cab.CX, cab.R_SHORT),
+    ((0.9, True, "#N/A", "Error — x", OK, FULL), cab.CX, cab.R_NO_PROOF),
+    # v1.5.2: partial India Post match passes when the full address names the PIN's locality
+    ((0.6, True, False, ft.POLYGON_INSIDE_TEXT, PINJORE_IP, PINJORE), cab.AMAZON, cab.R_AMZ_STATION),
+    ((0.6, True, False, ft.POLYGON_INSIDE_TEXT, PINJORE_IP, "Verma Colony, Village Khokhra, "
+      "Post Office Nanakpur, District Panchkula"), cab.CX, cab.R_IP_PARTIAL),   # city only
+    ((0.6, True, False, ft.POLYGON_INSIDE_TEXT, PINJORE_IP, "Pinjore Pinjore"), cab.CX,
+     cab.R_IP_PARTIAL),                                                       # not Full
+    ((0.9, True, "#N/A", "Outside", OK, FULL), cab.AMAZON, cab.R_AMZ_OUTSIDE),
     ((0.9, True, False, "Outside", "NOT OK — partially matches", FULL), cab.CX, cab.R_IP_PARTIAL),
     ((0.9, True, False, "Outside", "MISMATCH — not resolved", FULL), cab.CX, cab.R_IP_UNRESOLVED),
     ((0.9, True, False, "Outside", "", FULL), cab.CX, cab.R_IP_UNRESOLVED),
@@ -48,6 +64,60 @@ def test_address_quality():
     assert cab.address_quality("Berli Kalan,REWARI 8199839426,.") == "Short"
     assert cab.address_quality("Maincha  Maincha") == "Incomplete"
     assert cab.address_quality(None) == "Incomplete"
+
+
+# Real GCRS addresses from the operator's 224-TID hand check (2026-11-27)
+@pytest.mark.parametrize("address, expected", [
+    # were Short, really Full
+    ("Villa153,sanvi Spring Woods Bowrampet Near Pallavi International School", "Full"),
+    ("Rajiv Nagar Colony, Gachibowli Veera Pushpa Nilayam Near Pochamma Temple", "Full"),
+    ("Sheraton Grand Chennai Resort And Spa By Marriott Sheraton Grand Chennai Resort And Spa "
+     "Kelambakkam", "Full"),
+    ("The Park Chennai Anna Salai, Near Us Embassy, Tirumurthy Nagar, Nungambakkam, Chennai", "Full"),
+    ("Karpagam Faculty Of Medical Sciences And Research, Othakalmandapam, Coimbatore PIN Code : "
+     "641032", "Full"),
+    ("Village : Naugama Vill Landmark : Panchayat OR Bas Stop Ni Baju Ma Tehsil : Areth Post : "
+     "Naugama District : Surat, Gujarat", "Full"),
+    ("At. Po. Chakki Khamariya, Near By Mata Mandir, Goswami Mohalla, Chakki Khamariya, Seoni", "Full"),
+    ("Federal Bank Pollachi , Venkatesa Colony, Kabeer Dhasar Street", "Full"),
+    ("Rdno2 Banjara Hills,vamshiram Jyothi Valencia, Ftno.1003 Ftno1003,", "Full"),
+    ("Gali No - 1, Near Shiv Uniform Center Main Sohna Road, Behind Vishal Megamart Badshahpur", "Full"),
+    # were Full, really Short
+    ("Near Middle School Road", "Short"),
+    ("Rt Street Hospital Road", "Short"),
+    ("Malerkotla Road ,village Rania", "Short"),
+    ("Mhesana Visngar Road Mhesana Visngar Road", "Short"),
+    ("Sara Pg 2 Beside Cafe Lounge", "Short"),
+    ("Sun Temple Road Highway Modhera Pera Ke Nice", "Short"),
+    ("Doddamalle, Araleri Road, Doddamalle, Kolar - 563130", "Short"),
+    ("Behind Sbi Bank Sector 66 District Gurgaon", "Short"),
+    ("Sco 38,sco38 Back Side Main Market Sector", "Short"),
+    ("96-98 Lv2 Lingampalli Hyderabad", "Short"),
+    ("7-1-79/C, Siriconsultants", "Short"),
+    # stay Full
+    ("Audoedge Advanced Automation Pvt. Ltd., Plot No. 178/2, Vemana Road, Dommasandra", "Full"),
+    ("D-6/411 Chitrakoot Marg Akruti Apartments Chitrakoot", "Full"),
+    ("1048 Sector 16 Fbf Sector 16 Faridabad", "Full"),
+    ("Hig 112 Kphb Phase 3 Hyd", "Full"),
+    ("Vivek Kumar, C/O: Saurav Sharma, Ward No: 10, Basantpur, Supaul, Bihar, PIN- 854340 "
+     "Landmark - East From Durga Mandir Basantpur", "Full"),
+    # stay Short / Incomplete
+    ("Manjhiaon Manjhiaon Garhwa", "Incomplete"),
+    ("Pune District Pune District", "Incomplete"),
+    ("Village Bijori Tehsil Shahpura", "Short"),
+    ("Ashok Nagar", "Incomplete"),
+])
+def test_address_quality_real_cases(address, expected):
+    assert cab.address_quality(address) == expected
+
+
+def test_join_address_lines_glues_mid_word_cuts():
+    assert cab.join_address_lines("Plot No. 178/2, Vem", "ana Road, Dommasandra", None) == \
+        "Plot No. 178/2, Vemana Road, Dommasandra"
+    assert cab.join_address_lines("Kabeer Dhasar Str", "eet", "") == "Kabeer Dhasar Street"
+    assert cab.join_address_lines("Hitec City", "Room No 401", None) == "Hitec City, Room No 401"
+    assert cab.join_address_lines("Zirakpur 14", "0603") == "Zirakpur 140603"
+    assert cab.join_address_lines(None, None, None) == ""
 
 
 def _workbook(tmp_path):
