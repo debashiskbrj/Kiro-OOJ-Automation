@@ -94,8 +94,10 @@ Last reviewed: 2026-11-16.
   in Comments, AJ = Rule B Bucket (Pincode + GCRS Address), AK = CX / Amazon Bucket,
   AL = Bucket Reason; next free column is AM.
 - CX / Amazon Bucket (2026-11-27, `tools/cx_amazon_bucket.py`): Valid rows only, two buckets.
-  Amazon only if O TRUE + (R FALSE or AG Outside) + India Post OK + full GCRS address; else CX
-  with a short reason in AL. Keep Rule B (AJ) as is.
+  Amazon only if O TRUE + station known (R FALSE, AG Outside, or R TRUE = right station that
+  still claimed OOJ, v1.5.1) + India Post OK + full GCRS address; else CX with a short reason
+  in AL. India Post "partially matches" counts as OK when the Full address names a locality
+  India Post lists for that PIN (v1.5.2). Keep Rule B (AJ) as is.
 - Rule B Bucket (2026-11-25, `tools/rule_b_bucket.py`): Valid rows only, plain text
   Customer Bucket / Amazon Bucket / Manual Review, rules in order B1+B2, B3, B5, B4, B6, B7.
   Buckets must add up to the Valid count in P. Reference: Valid 494 = 345 + 78 + 71.
